@@ -223,7 +223,7 @@
                 (do (log-with-conn conn :error "Failed to authenticate.")
                     (disconnect conn)
                     (deliver authenticated? false))
-                (do (log-wc-info conn "Authenticated."
+                (do (log-wc-debug conn "Authenticated."
                                  (deliver authenticated? true)))))))
 
 (defn- fulfil-result
@@ -271,7 +271,7 @@
 
 (defn- handle-disconnect-notice
   [{:keys [connected? aleph-stream] :as conn} msg]
-  (log-wc-info conn "Received disconnect-notice.")
+  (log-wc-debug conn "Received disconnect-notice.")
   (dosync
    (if @connected?
      (do (.close aleph-stream)
@@ -283,7 +283,7 @@
   (fn [data-bytes]
     (if (nil? data-bytes)
       ;; Handle disconnection.
-      (do (log-wc-info conn "Disconnected.")
+      (do (log-wc-debug conn "Disconnected.")
           (dosync
            (if @connected?
              (.close aleph-stream)
@@ -328,7 +328,7 @@
                 :event-handlers (atom {})
                 :event-queue (atom (sorted-map))
                 :event-queue-size event-queue-size}]
-      (log-wc-info conn "Connected.")
+      (log-wc-debug conn "Connected.")
       ;; Bind a handler for channel_data event.
       (bind-event conn
                   "CHANNEL_DATA"
@@ -437,7 +437,7 @@
   [conn]
   (let [{:keys [connected?]} conn]
     (if @connected?
-      (do (log-wc-info conn "Sending exit request ...")
+      (do (log-wc-debug conn "Sending exit request ...")
           (req conn ["exit"] {} nil))
       (log-with-conn conn :warn "Disconnected already."))))
 
