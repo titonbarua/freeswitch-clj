@@ -1,6 +1,6 @@
-(defproject freeswitch-clj "0.1.0-SNAPSHOT"
+(defproject freeswitch-clj "0.1.0"
   :description "A Clojure interface to freeswitch event socket."
-  :url "http://example.com/FIXME"
+  :url "https://github.com/titonbarua/freeswitch-clj"
   :license {:name "MIT Public License"
             :url "https://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.8.0"]
