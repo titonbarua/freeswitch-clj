@@ -1,0 +1,114 @@
+Content-Type: auth/request
+
+Content-Type: command/reply
+Reply-Text: +OK accepted
+
+Content-Type: api/response
+Content-Length: 330
+
+UP 0 years, 0 days, 17 hours, 41 minutes, 5 seconds, 409 milliseconds, 299 microseconds
+FreeSWITCH (Version 1.6.19  64bit) is ready
+0 session(s) since startup
+0 session(s) - peak 0, last 5min 0 
+0 session(s) per Sec out of max 30, peak 0, last 5min 0 
+1000 session(s) max
+min idle cpu 0.00/98.13
+Current Stack Size/Max 240K/8192K
+Content-Type: command/reply
+Reply-Text: +OK event listener enabled plain
+
+Content-Type: command/reply
+Reply-Text: +OK Job-UUID: 5caf00ab-e476-4e5a-8bea-2749d428dea2
+Job-UUID: 5caf00ab-e476-4e5a-8bea-2749d428dea2
+
+Content-Length: 885
+Content-Type: text/event-plain
+
+Event-Name: BACKGROUND_JOB
+Core-UUID: 35a647e7-c4e9-42f5-97cc-73606bbaa258
+FreeSWITCH-Hostname: oscar-delu
+FreeSWITCH-Switchname: oscar-delu
+FreeSWITCH-IPv4: 192.168.250.70
+FreeSWITCH-IPv6: %3A%3A1
+Event-Date-Local: 2017-11-10%2013%3A54%3A48
+Event-Date-GMT: Fri,%2010%20Nov%202017%2007%3A54%3A48%20GMT
+Event-Date-Timestamp: 1510300488443268
+Event-Calling-File: mod_event_socket.c
+Event-Calling-Function: api_exec
+Event-Calling-Line-Number: 1557
+Event-Sequence: 8061
+Job-UUID: 5caf00ab-e476-4e5a-8bea-2749d428dea2
+Job-Command: status
+Content-Length: 331
+
+UP 0 years, 0 days, 17 hours, 41 minutes, 22 seconds, 817 milliseconds, 606 microseconds
+FreeSWITCH (Version 1.6.19  64bit) is ready
+0 session(s) since startup
+0 session(s) - peak 0, last 5min 0 
+0 session(s) per Sec out of max 30, peak 0, last 5min 0 
+1000 session(s) max
+min idle cpu 0.00/98.43
+Current Stack Size/Max 240K/8192K
+Content-Type: command/reply
+Reply-Text: +OK event listener enabled xml
+
+Content-Type: command/reply
+Reply-Text: +OK Job-UUID: ed3dd1a8-3301-4ed4-be1a-4045ac3dd247
+Job-UUID: ed3dd1a8-3301-4ed4-be1a-4045ac3dd247
+
+Content-Length: 1305
+Content-Type: text/event-xml
+
+<event>
+  <headers>
+    <Event-Name>BACKGROUND_JOB</Event-Name>
+    <Core-UUID>35a647e7-c4e9-42f5-97cc-73606bbaa258</Core-UUID>
+    <FreeSWITCH-Hostname>oscar-delu</FreeSWITCH-Hostname>
+    <FreeSWITCH-Switchname>oscar-delu</FreeSWITCH-Switchname>
+    <FreeSWITCH-IPv4>192.168.250.70</FreeSWITCH-IPv4>
+    <FreeSWITCH-IPv6>%3A%3A1</FreeSWITCH-IPv6>
+    <Event-Date-Local>2017-11-10%2013%3A55%3A02</Event-Date-Local>
+    <Event-Date-GMT>Fri,%2010%20Nov%202017%2007%3A55%3A02%20GMT</Event-Date-GMT>
+    <Event-Date-Timestamp>1510300502603269</Event-Date-Timestamp>
+    <Event-Calling-File>mod_event_socket.c</Event-Calling-File>
+    <Event-Calling-Function>api_exec</Event-Calling-Function>
+    <Event-Calling-Line-Number>1557</Event-Calling-Line-Number>
+    <Event-Sequence>8065</Event-Sequence>
+    <Job-UUID>ed3dd1a8-3301-4ed4-be1a-4045ac3dd247</Job-UUID>
+    <Job-Command>status</Job-Command>
+  </headers>
+  <Content-Length>331</Content-Length>
+  <body>UP 0 years, 0 days, 17 hours, 41 minutes, 36 seconds, 962 milliseconds, 323 microseconds
+FreeSWITCH (Version 1.6.19  64bit) is ready
+0 session(s) since startup
+0 session(s) - peak 0, last 5min 0 
+0 session(s) per Sec out of max 30, peak 0, last 5min 0 
+1000 session(s) max
+min idle cpu 0.00/97.93
+Current Stack Size/Max 240K/8192K
+  </body>
+</event>
+Content-Type: command/reply
+Reply-Text: +OK event listener enabled json
+
+Content-Type: command/reply
+Reply-Text: +OK Job-UUID: fac71fdb-86f1-4b44-84c1-ae383321388d
+Job-UUID: fac71fdb-86f1-4b44-84c1-ae383321388d
+
+Content-Length: 928
+Content-Type: text/event-json
+
+{"Event-Name":"BACKGROUND_JOB","Core-UUID":"35a647e7-c4e9-42f5-97cc-73606bbaa258","FreeSWITCH-Hostname":"oscar-delu","FreeSWITCH-Switchname":"oscar-delu","FreeSWITCH-IPv4":"192.168.250.70","FreeSWITCH-IPv6":"::1","Event-Date-Local":"2017-11-10 13:55:13","Event-Date-GMT":"Fri, 10 Nov 2017 07:55:13 GMT","Event-Date-Timestamp":"1510300513943270","Event-Calling-File":"mod_event_socket.c","Event-Calling-Function":"api_exec","Event-Calling-Line-Number":"1557","Event-Sequence":"8069","Job-UUID":"fac71fdb-86f1-4b44-84c1-ae383321388d","Job-Command":"status","Content-Length":"331","_body":"UP 0 years, 0 days, 17 hours, 41 minutes, 48 seconds, 306 milliseconds, 778 microseconds\nFreeSWITCH (Version 1.6.19  64bit) is ready\n0 session(s) since startup\n0 session(s) - peak 0, last 5min 0 \n0 session(s) per Sec out of max 30, peak 0, last 5min 0 \n1000 session(s) max\nmin idle cpu 0.00/97.77\nCurrent Stack Size/Max 240K/8192K\n"}Content-Type: command/reply
+Reply-Text: +OK event listener enabled json
+
+Content-Length: 912
+Content-Type: text/event-json
+
+{"Event-Name":"HEARTBEAT","Core-UUID":"35a647e7-c4e9-42f5-97cc-73606bbaa258","FreeSWITCH-Hostname":"oscar-delu","FreeSWITCH-Switchname":"oscar-delu","FreeSWITCH-IPv4":"192.168.250.70","FreeSWITCH-IPv6":"::1","Event-Date-Local":"2017-11-10 13:57:52","Event-Date-GMT":"Fri, 10 Nov 2017 07:57:52 GMT","Event-Date-Timestamp":"1510300672183268","Event-Calling-File":"switch_core.c","Event-Calling-Function":"send_heartbeat","Event-Calling-Line-Number":"74","Event-Sequence":"8087","Event-Info":"System Ready","Up-Time":"0 years, 0 days, 17 hours, 44 minutes, 26 seconds, 550 milliseconds, 931 microseconds","FreeSWITCH-Version":"1.6.19~64bit","Uptime-msec":"63866550","Session-Count":"0","Max-Sessions":"1000","Session-Per-Sec":"30","Session-Per-Sec-Last":"0","Session-Per-Sec-Max":"0","Session-Per-Sec-FiveMin":"0","Session-Since-Startup":"0","Session-Peak-Max":"0","Session-Peak-FiveMin":"0","Idle-CPU":"98.033333"}Content-Type: command/reply
+Reply-Text: +OK bye
+
+Content-Type: text/disconnect-notice
+Content-Length: 67
+
+Disconnected, goodbye.
+See you at ClueCon! http://www.cluecon.com/
