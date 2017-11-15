@@ -62,7 +62,11 @@ A Clojure library to communicate with freeswitch event socket.
 (f/listen :port 10000 :handler conn-handler)
 ```
 
-Check out [more usage examples.](http://)
+Check out [more usage examples.](https://titonbarua.github.io/freeswitch-clj/usage_examples.html)
+
+### Documentation
+
+Full API documentation can be browsed from [here.](https://titonbarua.github.io/freeswitch-clj)
 
 ## License
 
