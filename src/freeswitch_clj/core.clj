@@ -423,7 +423,7 @@
   {:pre [(integer? port)
          (fn? handler)]}
   (log/info "Listening for freeswitch at port: " port)
-  (tcp/start-server (create-aleph-conn-handler event-queue-size handler)
+  (tcp/start-server (create-aleph-conn-handler handler event-queue-size)
                     {:port port}))
 
 (defn disconnect
