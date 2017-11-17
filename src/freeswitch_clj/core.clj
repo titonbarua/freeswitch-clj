@@ -65,7 +65,7 @@
 (defn- norm-token
   "Normalize a token, by trimming and upper-casing it."
   [tok]
-  (str/upper-case (str/trim tok)))
+  (str/upper-case (str/trim (str tok))))
 
 (defn- norm-hkey
   "Normalize an event handler key."
@@ -241,8 +241,6 @@
                "CUSTOM" [name (event :Event-Subclass)]
                "CHANNEL_EXECUTE" [name (event :Unique-ID) (event :Application-UUID)]
                "CHANNEL_EXECUTE_COMPLETE" [name (event :Unique-ID) (event :Application-UUID)]
-               "CHANNEL_HANGUP" [name (event :Application-UUID)]
-               "CHANNEL_HANGUP_COMPLETE" [name (event :Application-UUID)]
                name)
 
         ;; _ (println "Handler key is: " (norm-hkey hkey))
@@ -642,13 +640,14 @@
   event listener setup.
   "
   [conn
-   & {:keys [chan-uuid body event-lock]
-      :or [event-lock false]
+   & {:keys [chan-uuid body]
       :as headers}]
   (let [cmd-line (if chan-uuid
                    ["sendmsg" chan-uuid]
                    ["sendmsg"])
-        cmd-hdrs (dissoc headers :body :chan-uuid)
+        cmd-hdrs (as-> headers $
+                       (dissoc $ :body :chan-uuid)
+                       (remove (fn [[k v]] (nil? v)) $))
         cmd-body body]
     (async/<!! (req conn cmd-line cmd-hdrs cmd-body))))
 
@@ -657,54 +656,59 @@
   of freeswitch-outbound mode) to execute a dialplan application.
 
   Args:
-  * app-name - Name of the dialplan app to execute, i.e. 'playback'.
-  * app-arg - Argument data to pass to the app. Pass `nil` if no data is present.
+  * app-cmd - The dialplan app to execute, including it's arguments.
+              i.e. \"playback /tmp/myfile.wav\"
 
   Keyword args:
   * :chan-uuid - The UUID of the target channel. Unnecessary in outbound mode.
   * :start-handler - (optional) Function to process the CHANNEL_EXECUTE event.
   * :end-handler - (optional) Function to process the CHANNEL_EXECUTE_COMPLETE event.
   * :event-lock - (optional) Whether to execute apps in sync. Defaults to false.
-  * :repeat - (optional) The number of times the app will be executed. Defaults to 1.
+  * :loops - (optional) The number of times the app will be executed. Defaults to 1.
 
   Returns:
   Command response.
   "
   [conn
-   app-name
-   app-arg
-   {:keys [chan-uuid
-           start-handler
-           end-handler
-           event-lock
-           repeat]
-    :or [event-lock false
-         repeat 1]
-    :as kwargs}]
+   app-cmd
+   & {:keys [chan-uuid
+             start-handler
+             end-handler
+             event-lock
+             loops]
+      :or {event-lock false
+           loops 1}
+      :as kwargs}]
 
   (let [event-uuid (str (uuid/v1))
-        {:keys [enabled-special-events]} conn]
+        {:keys [enabled-special-events]} conn
+        [app-name app-arg] (str/split app-cmd #"\s+" 2)]
+    ;; Setup :start-handler, if present.
     (when start-handler
       (when-not @(enabled-special-events "CHANNEL_EXECUTE")
         (assert (:ok (req-cmd "event" "CHANNEL_EXECUTE"))))
       (bind-event conn
                   ["CHANNEL_EXECUTE" chan-uuid event-uuid]
                   start-handler))
+
+    ;; Setup :end-handler, if present.
     (when end-handler
-      (when-not @(enabled-special-events "CHANNEL_EXECUTE")
-        (assert (:ok (req-cmd "event" "CHANNEL_EXECUTE"))))
+      (when-not @(enabled-special-events "CHANNEL_EXECUTE_COMPLETE")
+        (assert (:ok (req-cmd "event" "CHANNEL_EXECUTE_COMPLETE"))))
       (bind-event conn
                   ["CHANNEL_EXECUTE_COMPLETE" chan-uuid event-uuid]
                   end-handler))
-    (let [{:keys [ok Event-UUID] :as rslt} (req-sendmsg :chan-uuid chan-uuid
-                                                        :call-command "EXECUTE"
-                                                        :execute-app-name app-name
-                                                        :Event-UUID event-uuid
-                                                        :loops repeat
-                                                        :body app-arg)]
-      (assert (= (norm-token Event-UUID)
-                 (norm-token event-uuid)))
-      rslt)))
+
+    ;; Make the 'sendmsg' request.
+    (req-sendmsg conn
+                 :Chan-UUID chan-uuid
+                 :Call-Command "execute"
+                 :Execute-App-Name app-name
+                 :Event-UUID event-uuid
+                 :Loops loops
+                 :Event-Lock event-lock
+                 :Content-Type "text/plain"
+                 :body app-arg)))
 
 ;; TODO: req-call-hangup
 ;; TODO: req-call-nomedia
