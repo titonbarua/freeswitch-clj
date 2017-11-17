@@ -57,10 +57,10 @@
 
 (defn- send-str
   "Send some string data to freeswitch."
-  [{:keys [connected? aleph-stream] :as conn} data]
-  (if @connected?
+  [{:keys [closed? aleph-stream] :as conn} data]
+  (if-not (realized? closed?)
     (stream/put! aleph-stream data)
-    (throw (Exception. "Can't send data to unconnected session."))))
+    (throw (Exception. "Can't send data to through closed connection."))))
 
 (defn- norm-token
   "Normalize a token, by trimming and upper-casing it."
@@ -143,12 +143,10 @@
   "Do some initiation rites in outbound mode."
   [conn]
   (log-wc-debug conn "Initiation rites starting ...")
-  (req conn ["connect"] {} nil)
   (req conn ["linger"] {} nil)
   (req conn ["myevents"] {} nil)
   (log-wc-debug conn "Initiation rites complete."))
 
-(declare handle-pending-events)
 (defn bind-event
   "Bind a handler function to the event.
 
@@ -166,15 +164,12 @@
   * This does not send an 'event' command to freeswitch.
   * Generally, you should use it's higher-level cousin: `req-event`.
   * Only one event handler is allowed per event. New bindings
-    override the old ones.
-  * Events are put into a limited-sized, sliding queue. The queue
-    is ordered according to the 'Event-Sequence' header."
+    override the old ones."
   [conn event-name handler]
   {:pre [(fn? handler)]}
   (let [hkey (norm-hkey event-name)
         hkey (if (= hkey "ALL") :any-event hkey)]
-    (swap! (:event-handlers conn) assoc hkey handler)
-    (handle-pending-events conn)))
+    (swap! (:event-handlers conn) assoc hkey handler)))
 
 (defn unbind-event
   "Unbind the associated handler for an event.
@@ -224,7 +219,7 @@
                     (disconnect conn)
                     (deliver authenticated? false))
                 (do (log-wc-debug conn "Authenticated."
-                                 (deliver authenticated? true)))))))
+                                  (deliver authenticated? true)))))))
 
 (defn- fulfil-result
   [{:keys [rslt-chans resp-index] :as conn} result]
@@ -234,9 +229,9 @@
    (alter resp-index inc)))
 
 (defn- enqueue-event
-  [{:keys [event-queue event-queue-size] :as conn} event]
+  [{:keys [event-chan] :as conn} event]
   (let [evseq (Integer/parseInt (event :Event-Sequence))]
-    (swap! event-queue assoc evseq event)))
+    (async/put! event-chan event)))
 
 (defn- handle-event
   [{:keys [event-handlers] :as conn}
@@ -257,37 +252,46 @@
     (if handler
       (do (handler conn event)
           true)
-      (do (log-with-conn conn :warn "No handler bound for event:" (pr-str event))
+      (do (log-with-conn conn
+                         :warn
+                         "Ignoring handler-less event:"
+                         (event :Event-Name))
           false))))
 
-(defn- handle-pending-events
-  [{:keys [event-queue event-queue-size] :as conn}]
-  (let [newq (->> @event-queue
-                  (remove (fn [[eseq event]]
-                            (handle-event conn event)))
-                  (take-last event-queue-size)
-                  (into (sorted-map)))]
-    (reset! event-queue newq)))
+(defn- spawn-event-handler
+  "Create a go-block to handle incoming events."
+  [{:keys [event-chan] :as conn}]
+  (async/go
+    (loop [event (async/<! event-chan)]
+      (when event
+        (handle-event conn event)
+        (recur (async/<! event-chan))))))
+
+(defn close
+  "Close a freeswitch connection.
+
+  Note:
+  Normally, you should use `disconnect` function to
+  gracefully disconnect, which sends protocol epilogue."
+  [{:keys [aleph-stream event-chan closed?] :as conn}]
+  (if-not (realized? closed?)
+    (do (.close aleph-stream)
+        (async/close! event-chan)
+        (deliver closed? true))))
 
 (defn- handle-disconnect-notice
   [{:keys [connected? aleph-stream] :as conn} msg]
   (log-wc-debug conn "Received disconnect-notice.")
-  (dosync
-   (if @connected?
-     (do (.close aleph-stream)
-         (ref-set connected? false)))))
+  (close conn))
 
 (defn- create-aleph-data-consumer
   "Create a data consumer to process incoming data in an aleph stream."
-  [{:keys [rx-buff aleph-stream connected? event-queue] :as conn}]
+  [{:keys [rx-buff aleph-stream] :as conn}]
   (fn [data-bytes]
     (if (nil? data-bytes)
       ;; Handle disconnection.
       (do (log-wc-debug conn "Disconnected.")
-          (dosync
-           (if @connected?
-             (.close aleph-stream)
-             (ref-set connected? false))))
+          (close conn))
 
       ;; Handle incoming data.
       (let [data (String. data-bytes)
@@ -306,19 +310,16 @@
               "text/event-xml" (enqueue-event conn (parse-event m))
               "text/disconnect-notice" (handle-disconnect-notice conn m)
               (println "Ignoring unexpected content-type: " ctype))))
-        (if-not (empty? @event-queue)
-          (handle-pending-events conn))
         (reset! rx-buff data-rest)))))
 
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."
-  [handler event-queue-size]
+  [handler]
   (fn [strm info]
     (let [conn {:aleph-conn-info info
-                :channel-data (promise)
                 :mode :fs-outbound
 
-                :connected? (ref true)
+                :closed? (promise)
                 :aleph-stream strm
                 :rx-buff (atom "")
                 :req-index (ref 0)
@@ -326,21 +327,24 @@
                 :rslt-chans (atom {})
 
                 :event-handlers (atom {})
-                :event-queue (atom (sorted-map))
-                :event-queue-size event-queue-size}]
+                :event-chan (async/chan)
+                :enabled-special-events (atom (zipmap special-events (repeat false)))}]
       (log-wc-debug conn "Connected.")
-      ;; Bind a handler for channel_data event.
-      (bind-event conn
-                  "CHANNEL_DATA"
-                  (fn [conn event]
-                    (deliver (conn :channel-data) event)))
+      (spawn-event-handler conn)
+
       ;; Bind a consumer for incoming data bytes.
-      (stream/consume (create-aleph-data-consumer conn)
-                      (conn :aleph-stream))
-      ;; Block until channel_data event is received.
-      (when @(conn :channel-data)
-        (init-outbound conn)
-        (handler conn)))))
+      (stream/consume (create-aleph-data-consumer conn) strm)
+
+      ;; Run handler in a seperate async/tread.
+      (async/thread
+        (let [chan-data (-> (async/<!! (req conn ["connect"] {} nil))
+                            (dissoc :ok :body :Content-Type))]
+          (init-outbound conn)
+          (handler conn chan-data)
+          (close conn)))
+
+      ;; Return the aleph stream.
+      strm)))
 
 (defn connect
   "Make an inbound connection to freeswitch.
@@ -352,19 +356,16 @@
             Defaults to 8021.
   * :password - (optional) Password for freeswitch inbound connection.
                 Defaults to ClueCon.
-  * :event-queue-size - (Optional) Size of the event queue.
-                        Defaults to 1000.
 
   Returns:
   A map describing the connection.
 
   Note:
   Blocks until authentication step is complete."
-  [& {:keys [host port password event-queue-size]
+  [& {:keys [host port password]
       :or {host "127.0.0.1"
            port 8021
-           password "ClueCon"
-           event-queue-size 1000}
+           password "ClueCon"}
       :as kwargs}]
   (let [strm @(tcp/client {:host host :port port})]
     (let [conn {:host host
@@ -373,7 +374,7 @@
                 :authenticated? (promise)
                 :mode :fs-inbound
 
-                :connected? (ref true)
+                :closed? (promise)
                 :aleph-stream strm
                 :rx-buff (atom "")
                 :req-index (ref 0)
@@ -381,49 +382,47 @@
                 :rslt-chans (atom {})
 
                 :event-handlers (atom {})
-                :event-queue (atom (sorted-map))
-                :event-queue-size event-queue-size
-
+                :event-chan (async/chan)
                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
+      (log-wc-debug conn "Connected.")
+      (spawn-event-handler conn)
 
       ;; Hook-up incoming data handler.
-      (log-wc-debug conn "Connected.")
-      (stream/consume (create-aleph-data-consumer conn)
-                      (conn :aleph-stream))
+      (stream/consume (create-aleph-data-consumer conn) strm)
 
       ;; Block until authentication step is complete.
       (if @(conn :authenticated?)
         (do (init-inbound conn)
             conn)
-        (throw (ex-info "Failed to authenticate."
-                        {:host (conn :host)
-                         :port (conn :port)}))))))
+        (do (close conn)
+            (throw (ex-info "Failed to authenticate."
+                            {:host (conn :host)
+                             :port (conn :port)})))))))
 
 (defn listen
   "Listen for outbound connections from freeswitch.
 
   Keyword args:
   * :port - Port to listen for freeswitch connections.
-  * :handler - A function with signature: `(fn [conn])`. `conn`
-               is a connection map which can be used with any
+  * :handler - A function with signature: `(fn [conn chan-data])`.
+               `conn` is a connection map which can be used with any
                requester function, like: `req-cmd`, `req-api` etc.
-  * :event-queue-size - (optional) Size of the incoming event queue.
-                        Defaults to 1000.
+               `chan-data` is information about current channel.
 
   Returns:
   An aleph server object.
 
   Notes:
-  * Channel data is bound to `:channel-data` key of `conn`.
   * Connection auto listens for 'myevents'. But no event handler is bound.
-  * To stop listening, call `.close` method of the returned server object."
-  [& {:keys [port handler event-queue-size]
-      :or [event-queue-size 1000]
+  * To stop listening for connections, call `.close` method of the returned
+    server object.
+  "
+  [& {:keys [port handler]
       :as kwargs}]
   {:pre [(integer? port)
          (fn? handler)]}
   (log/info "Listening for freeswitch at port: " port)
-  (tcp/start-server (create-aleph-conn-handler handler event-queue-size)
+  (tcp/start-server (create-aleph-conn-handler handler)
                     {:port port}))
 
 (defn disconnect
@@ -435,8 +434,8 @@
   Returns:
   nil"
   [conn]
-  (let [{:keys [connected?]} conn]
-    (if @connected?
+  (let [{:keys [closed?]} conn]
+    (if-not (realized? closed?)
       (do (log-wc-debug conn "Sending exit request ...")
           (req conn ["exit"] {} nil))
       (log-with-conn conn :warn "Disconnected already."))))
