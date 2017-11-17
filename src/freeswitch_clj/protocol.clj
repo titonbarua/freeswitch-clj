@@ -24,7 +24,7 @@
   "Encode a header-map for outgoing message."
   [hdrs]
   (->> hdrs
-       (map (fn [[k v]] (str/join ": " [(name k) (url-encode v)])))
+       (map (fn [[k v]] (str/join ": " [(name k) (str/trim (str v))])))
        (sort-by (fn [[k v]] k))
        (str/join lineend)))
 
