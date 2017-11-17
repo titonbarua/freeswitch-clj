@@ -6,7 +6,7 @@
 ;; Please see the attached LICENSE file in project root.
 (ns ^{:doc "Functions to encode & decode text based protocol of freeswitch ESL."
       :author "Titon Barua"}
-  freeswitch-clj.protocol
+ freeswitch-clj.protocol
   (:require [clojure.string :as str]
             [clojure.zip :as zip]
             [clojure.xml :as xml]
@@ -20,29 +20,49 @@
 (def ^:private double-lineend "\n\n")
 (def ^:private re-double-lineend #"\n\n")
 
+(defn- absorb-newlines
+  "Replace consecutive newlines (and surrounding whitespace chars)
+   in a string with a single space."
+  [s]
+  (str/replace s #"\s*[\r\n]+\s*" " "))
+
 (defn encode-headers
   "Encode a header-map for outgoing message."
   [hdrs]
   (->> hdrs
-       (map (fn [[k v]] (str/join ": " [(name k) (str/trim (str v))])))
+       (map (fn [[k v]]
+              (str (name k)
+                   ": "
+                   (-> v (str) (str/trim) (absorb-newlines)))))
        (sort-by (fn [[k v]] k))
        (str/join lineend)))
 
 (defn encode
   "Encode an outgoing message."
   [cmd-line cmd-hdrs cmd-body]
-  (let [cmd-hdrs (if-not cmd-body
-                   cmd-hdrs
-                   (assoc cmd-hdrs "Content-Length" (count cmd-body)))
-        outp (str/join " " (map str/trim cmd-line))
-        outp (if (empty? cmd-hdrs)
-               outp
-               (str/join lineend [outp (encode-headers cmd-hdrs)]))
-        outp (if (empty? cmd-body)
-               outp
-               (str/join double-lineend [outp cmd-body]))
-        outp (str outp double-lineend)]
-    outp))
+  (str (->> cmd-line
+            (map str/trim)
+            (str/join " ")
+            (absorb-newlines))
+
+       ;; Add headers.
+       (if (empty? cmd-hdrs)
+         ""
+         (str lineend
+              (encode-headers cmd-hdrs)))
+
+       ;; Add a content-length header, if body is present.
+       (if (empty? cmd-body)
+         ""
+         (str lineend
+              "Content-Length: "
+              (count (.getBytes cmd-body))))
+
+       ;; Add message completion indicator.
+       double-lineend
+
+       ;; If present, add body.
+       (if (empty? cmd-body) "" cmd-body)))
 
 (defn decode-envelope-headers
   "Decode an envelope-header section from incoming message into a map."

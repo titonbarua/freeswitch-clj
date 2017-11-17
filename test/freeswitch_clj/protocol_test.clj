@@ -144,3 +144,53 @@
               :Session-Peak-FiveMin "0"
               :Idle-CPU "98.033333"}))
       (is (nil? (event :body))))))
+
+(deftest message-encoding
+  ;; Test header encoding.
+  (let [hdrs {:A "a", :B "hello  \n  world   \n \n", "C" "c"}]
+    (is (= (encode-headers hdrs)
+           (str "A: a"
+                "\nB: hello world"
+                "\nC: c"))))
+
+  ;; Encode a simple command, without any headers.
+  (is (= (encode ["only \n  " "  thing   \n   \n    "] {} nil)
+         "only thing\n\n"))
+
+  ;; Encode a command with some headers, without content.
+  (is (= (encode ["something"]
+                 {:foo "bar", :alice "bob"}
+                 nil)
+         (str "something"
+              "\nalice: bob"
+              "\nfoo: bar"
+              "\n\n")))
+
+  ;; Encode a command with headers and content.)
+  (is (= (encode ["something"]
+                 {:foo "bar", :alice "bob"}
+                 "some content")
+         (str "something"
+              "\nalice: bob"
+              "\nfoo: bar"
+              "\nContent-Length: 12"
+              "\n\nsome content")))
+
+  ;; Encode a (theoretical) command without headers, with content.
+  (is (= (encode ["something"]
+                 {}
+                 "some \n content\n")
+         (str "something"
+              "\nContent-Length: 15"
+              "\n\nsome \n content\n")))
+
+  ;; Send an unicode char in body.
+  ;; Although, freeswitch is not unicode aware, AFAIK.
+  (is (= (encode ["something"]
+                 {:foo "bar", :alice "bob"}
+                 "bangla letter ka: \u2453")
+         (str "something"
+              "\nalice: bob"
+              "\nfoo: bar"
+              "\nContent-Length: 21"
+              "\n\nbangla letter ka: \u2453"))))
