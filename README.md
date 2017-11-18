@@ -34,7 +34,7 @@ A Clojure library to communicate with freeswitch event socket.
         (println "Result is:" rslt)))
 
 ;; Make the 'bgapi' request.
-(f/req-bgapi conn "status" rslt-handler)
+(f/req-bgapi conn rslt-handler "status")
 ;; => {:ok true, :Reply-Text "...", :Job-UUID "<uuid>"}
 ;; Result is: {:ok true, :result "...", :event {...}}
 
@@ -49,17 +49,24 @@ A Clojure library to communicate with freeswitch event socket.
 
 ;; Define an incoming connection handler.
 (defn conn-handler
-    [conn]
-    (println "Channel data is:" (conn :channel-data))
+    [conn chan-data]
+    (println "Channel data is:" chan-data)
     ;; Channel data is: {...}
 
     (println (f/req-api conn "status"))
     ;; {:ok true, :result "...", :Reply-Text "..."}
 
-    (f/disconnect conn))
+    ;; Send an 'exit' command.
+    (f/disconnect conn)
+    ;; Wait for connection to close, by waiting for
+    ;; a promise to be delivered.
+    @(conn :close?))
 
 ;; Listen for connections from freeswitch.
 (f/listen :port 10000 :handler conn-handler)
+
+;; Sleep for 10 minutes.
+(Thread/sleep 600000)
 ```
 
 Check out [more usage examples.](https://titonbarua.github.io/freeswitch-clj/usage_examples.html)

@@ -1,4 +1,8 @@
-# Usage examples
+# Introduction
+
+`freeswitch-clj` is an event socket interface for FreeSWITCH in Clojure. This is an open source project released under MIT Pulic License. Read the the project README file hosted in [github](http://https://github.com/titonbarua/freeswitch-clj) for notes on installation and basic usage examples.
+
+This document demonstrates the usage of the library with some additional examples.
 
 ## Basic inbound setup
 
@@ -18,18 +22,22 @@ Here's a basic setup to send some commands to freeswitch in inbound mode:
 
 ## Basic outbound setup
 
-A basic outbound setup where freeswitch is configured to knock on port
-`10000` for decision about call routing:
+A basic outbound setup where freeswitch is configured to knock on port `10000` for decision about call routing:
 
 ```clojure
 (require '[freeswitch-clj.core :as f])
 
 ;; Create a connection handler.
 (defn conn-handler
-    [conn]
-    (println "Channel data:" (:channel-data conn))
+    [conn chan-data]
+    (println "Channel data:" chan-data)
     (println (f/req-api conn "status"))
-    (f/disconnect conn))
+
+    ;; Send 'exit' command.
+    (f/disconnect conn)
+    ;; Wait for connection to close.
+    @(conn :close?))
+
 
 ;; Listen for outbound connections from freeswitch on port 10000.
 (f/listen :port 10000
@@ -47,13 +55,12 @@ The function `req-bgapi` can be used to effortlessly handle result of background
     (println "bgjob result:" rslt))
 
 ;; Make a bgapi request.
-(f/req-bgapi conn "status" bgjob-handler)
+(f/req-bgapi conn bgjob-handler "status")
 ```
 
 ## Handling events, the high-level way
 
-Function `req-event` can be used to both subscribe and setup handler
-for an event.
+Function `req-event` can be used to both subscribe and setup handler for an event.
 
 ```clojure
 ;; Define an event handler.
@@ -62,21 +69,22 @@ for an event.
     (println "Received event:" event-map))
 
 ;; Watch for a heartbeat event.
-(f/req-event conn "HEARTBEAT" event-handler)
+(f/req-event conn
+             event-handler
+             :event-name "HEARTBEAT")
 ```
 
 ## Handling events, the low-level approach
 
-For more control, event handler binding and event subscription can be
-separated.
+For more control, event handler binding and event subscription can be separated.
 
 ```clojure
 ;; Bind event handler.
 (f/bind-event
     conn
-    "HEARTBEAT"
     (fn [conn event-map]
-        (println "Received heartbeat:" event-map))))
+        (println "Received heartbeat:" event-map))
+    :event-name "HEARTBEAT")
 
 ;; Subscribe to the event.
 (f/req-cmd conn "event HEARTBEAT")
