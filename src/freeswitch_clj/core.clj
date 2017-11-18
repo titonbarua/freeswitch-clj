@@ -58,6 +58,7 @@
 (defn- send-str
   "Send some string data to freeswitch."
   [{:keys [closed? aleph-stream] :as conn} data]
+  (println "data to send: " (pr-str data))
   (if-not (realized? closed?)
     (stream/put! aleph-stream data)
     (throw (Exception. "Can't send data to through closed connection."))))
@@ -67,12 +68,12 @@
   [tok]
   (str/upper-case (str/trim (str tok))))
 
-(defn- norm-hkey
-  "Normalize an event handler key."
-  [hkey]
-  (if (string? hkey)
-    (norm-token hkey)
-    (map norm-token hkey)))
+(defn norm-kv
+  "Convert a key-val pair into a normalized string, joined by colon."
+  [[k v]]
+  (str (norm-token (name k))
+       ":"
+       (norm-token (str v))))
 
 (defn- detect-special-events
   "Inspect outgoing event un/subscription commands to keep tabs on special events."
@@ -152,23 +153,48 @@
 
   Args:
   * conn - The connection map.
-  * event-name - Name of the event.
   * handler - The event handler function. It's signature should be:
               `(fn [conn event-map])`. Handler return value does not
               matter.
 
+  Keyword args:
+  All key value pairs are treated as event headers to match against.
+
   Returns:
   nil
+
+  Example:
+      ;; Set a catch-all-stray event handler.
+      (bind-event conn
+                  (fn [conn event]
+                    (println \"I match all stray events!\")))
+
+      ;; Create a BACKGROUND_JOB event handler.
+      (bind-event conn
+                  (fn [conn event]
+                    (println \"I match all BG_JOB events.\"))
+                  :event-name \"BACKGROUND_JOB\")
+
+      ;; Create BACKGROUND_JOB event handler for a specific job-uuid.
+      (bind-event conn
+                  (fn [conn event]
+                    (println \"I match BG_JOB with specific UUID.\"))
+                  :event-name \"BACKGROUND_JOB\"
+                  :job-uuid \"1234\")
 
   Note:
   * This does not send an 'event' command to freeswitch.
   * Generally, you should use it's higher-level cousin: `req-event`.
-  * Only one event handler is allowed per event. New bindings
-    override the old ones."
-  [conn event-name handler]
+  * Only one event handler is allowed per match criteria. New bindings
+    override the old ones.
+  * Specific handlers has higher priority than generalized ones.
+    The catch-all-stray handler has lowest priority.
+  "
+  [conn
+   handler
+   & {:as event-headers}]
   {:pre [(fn? handler)]}
-  (let [hkey (norm-hkey event-name)
-        hkey (if (= hkey "ALL") :any-event hkey)]
+  (let [hkey (set (map norm-kv event-headers))]
     (swap! (:event-handlers conn) assoc hkey handler)))
 
 (defn unbind-event
@@ -176,39 +202,18 @@
 
   Args:
   * conn - The connection map.
-  * event-name - Name of the event.
+
+  Keyword args:
+  Event headers to match against.
 
   Returns:
   nil"
-  [conn event-name]
-  (let [hkey (norm-hkey event-name)
-        hkey (if (= hkey "ALL") :any-event hkey)]
+  [conn
+   & {:as event-headers}]
+  (let [hkey (set (map norm-kv event-headers))]
+    (when (empty? hkey)
+      (log-with-conn conn :warn "Binding a catch-all-stray handler!"))
     (swap! (:event-handlers conn) dissoc hkey)))
-
-(defn bind-custom-event
-  "Bind a handler function for CUSTOM event with given subclass.
-
-  Args:
-  * conn - Connection map.
-  * subclass-name - Subclass name of the CUSTOM event.
-  * handler - Event handler function.
-
-  Returns:
-  nil"
-  [conn subclass-name handler]
-  (bind-event conn (norm-hkey ["CUSTOM" subclass-name]) handler))
-
-(defn unbind-custom-event
-  "Remove handler function for CUSTOM event with given subclass.
-
-  Args:
-  * conn - Connection map.
-  * subclass-name - Subclass name of the CUSTOM event.
-
-  Returns:
-  nil"
-  [conn subclass-name]
-  (unbind-event conn (norm-hkey ["CUSTOM" subclass-name])))
 
 (declare disconnect)
 (defn- send-password
@@ -230,23 +235,32 @@
 
 (defn- enqueue-event
   [{:keys [event-chan] :as conn} event]
-  (let [evseq (Integer/parseInt (event :Event-Sequence))]
-    (async/put! event-chan event)))
+  (async/put! event-chan event))
 
+;; How this works:
+;; Event handlers are put into a map, associated with a set made
+;; of their keys. For example, Here's a sample value of the
+;; event-handlers map: {
+;;   #{} <catch-all-stray-events-handler>
+;;   #{"EVENT-NAME:BACKGROUND_JOB"} <general-bgjob-handler-func>
+;;   #{"EVENT-NAME:BACKGROUND_JOB" "JOB-UUID:1234"} <specific-bgjob-handler>
+;; }
+;;
+;; During matching, we transform the event into a similar set. Then
+;; select those keys of event-handlers map, which are subset of the
+;; event set. If multiple subset is found, we select the biggest subset
+;; for more specific match.
+;;
+;; Note:
+;; If multiple biggest subset are found, there is no guarantee
+;; about which one will get selected.
 (defn- handle-event
-  [{:keys [event-handlers] :as conn}
-   {name :Event-Name :as event}]
-  (let [hkey (case name
-               "BACKGROUND_JOB" [name (event :Job-UUID)]
-               "CUSTOM" [name (event :Event-Subclass)]
-               "CHANNEL_EXECUTE" [name (event :Unique-ID) (event :Application-UUID)]
-               "CHANNEL_EXECUTE_COMPLETE" [name (event :Unique-ID) (event :Application-UUID)]
-               name)
-
-        ;; _ (println "Handler key is: " (norm-hkey hkey))
-        handler (get @event-handlers
-                     (norm-hkey hkey)
-                     (get @event-handlers :any-event))]
+  [{:keys [event-handlers] :as conn} event]
+  (let [event-keys (set (map norm-kv event))
+        hkey (->> (keys @event-handlers)
+                  (filter #(set/subset? % event-keys))
+                  (reduce #(max-key count %1 %2) nil))
+        handler (get @event-handlers hkey)]
     (if handler
       (do (handler conn event)
           true)
@@ -492,12 +506,12 @@
 
   Args:
   * conn - The connection map.
-  * api-cmd : Api command string with arguments.
   * handler - Result handler function. Signature is: `(fn [conn rslt])`.
               `rslt` is a map with following keys:
                 * :ok - Designates success of api operation.
                 * :result - Result of the api command.
                 * :event - The event which delivered the result.
+  * api-cmd : Api command string with arguments.
 
   Returns:
   The command response (not the api result).
@@ -506,12 +520,12 @@
       ;; Execute a 'status' api request in background.
       (req-bgapi
         conn
-        \"status\"
-        (fn [conn rslt] (println rslt)))
+        (fn [conn rslt] (println rslt))
+        \"status\")
   "
   [conn
-   api-cmd
-   handler]
+   handler
+   api-cmd]
   (let [{:keys [enabled-special-events]} conn]
     ;; Ask freeswitch to send us BACKGROUND_JOB events.
     (if-not (@enabled-special-events "BACKGROUND_JOB")
@@ -525,14 +539,19 @@
       ;; event handler before the response is generated. Relieing on
       ;; freeswitch generated uuid results in event handler function
       ;; being ran twich for jobs which complete too fast.
-      (bind-event conn ["BACKGROUND_JOB" job-uuid]  handler')
+      (bind-event conn
+                  handler'
+                  :event-name "BACKGROUND_JOB"
+                  :job-uuid job-uuid)
       (let [{:keys [Job-UUID] :as rslt} (async/<!! (req conn cmd-line cmd-hdrs nil))]
         (if Job-UUID
           ;; Just a sanity check.
           (assert (= (norm-token Job-UUID)
                      (norm-token job-uuid)))
           ;; Remove the binding for a failed command.
-          (unbind-event conn ["BACKGROUND_JOB" job-uuid]))
+          (unbind-event conn
+                        :event-name "BACKGROUND_JOB"
+                        :job-uuid job-uuid))
         rslt))))
 
 (defn req-event
@@ -540,63 +559,67 @@
 
   Args:
   * conn - The connection map.
-  * event-name - Name of the event.
-  * subclass-name - (optional) Subclass name. Applicable only if
-                    `event-name` is set to `CUSTOM`.
   * handler - Event handler function with signature:
               `(fn [conn event-map])`.
 
+  Keyword args:
+  * :event-name - Name of the event. Special value `ALL` means
+                  subscribe to all events and the handler matches
+                  any value for :event-name.
+  * All other keyword arguments are treated as event headers
+    to match against. Like `:event-subclass` to match for custom
+    events.
+
   Returns:
   Response of the event command.
-
-  Note:
-  Setting an event handler for event `ALL` will change the default
-  event handler. This handler does not receive all events; rather
-  it receives events missing an explicit handler.
 
   Examples:
      ;; Listen for a regular event.
      (req-event
        conn
-       \"CALL_UPDATE\"
-       (fn [conn event] (println \"Got a call update!\")))
+       (fn [conn event]
+         (println \"Got a call update!\"))
+       :event-name \"CALL_UPDATE\")
 
-     ;; Listen for a custom event.
+     ;; Listen for a custom event with specific subclass.
      (req-event
        conn
-       \"CUSTOM\"
-       \"menu:enter\"
-       (fn [conn event] (println \"Inside a menu!\")))
+       (fn [conn event]
+         (println \"Inside a menu!\"))
+       :event-name \"CUSTOM\"
+       :event-subclass \"menu:enter\")
 
-     ;; Listen for all events and setup a default event handler.
+     ;; Listen for all events and setup a catch-all-stray handler.
      (req-event
        conn
-       \"ALL\"
-       (fn [conn event] (println event)))
+       (fn [conn event]
+         (println event))
+       :event-name \"ALL\")
   "
-  ([conn event-name handler]
-   {:pre [(fn? handler)]}
-   (bind-event conn event-name handler)
-   (let [cmd-line ["event" event-name]
-         {:keys [ok] :as rslt} (async/<!! (req conn cmd-line {} nil))]
-     ;; Unbind event handler if 'event' command failed.
-     (when-not ok
-       (unbind-event conn event-name))
-     rslt))
+  [conn
+   handler
+   & {:keys [event-name]
+      :as event-headers}]
+  {:pre [(fn? handler)
+         (not (nil? event-name))]}
+  (let [cmd-line ["event" event-name]
+        event-headers (if (= (str/lower-case (str/trim event-name)) "ALL")
+                        (dissoc event-headers :event-name)
+                        event-headers)]
+    ;; Bind a handler.
+    (apply bind-event
+           conn
+           handler
+           (flatten (seq event-headers)))
 
-  ([conn
-    event-name
-    subclass-name
-    handler]
-   {:pre [(fn? handler)
-          (= (norm-token event-name) "CUSTOM")]}
-   (bind-custom-event conn subclass-name handler)
-   (let [cmd-line ["event" event-name subclass-name]
-         {:keys [ok] :as rslt} (async/<!! (req conn cmd-line {} nil))]
-     ;; Unbind event handler if 'event' command failed.
-     (when-not ok
-       (unbind-custom-event conn subclass-name))
-     rslt)))
+    ;; Request to listen for the event.
+    (let [{:keys [ok] :as rslt} (async/<!! (req conn cmd-line {} nil))]
+      ;; Unbind event handler if 'event' command failed.
+      (when-not ok
+        (apply unbind-event
+               conn
+               (flatten (seq event-headers))))
+      rslt)))
 
 (defn req-sendevent
   "Send a generated event to freeswitch.
@@ -688,16 +711,20 @@
       (when-not @(enabled-special-events "CHANNEL_EXECUTE")
         (assert (:ok (req-cmd "event" "CHANNEL_EXECUTE"))))
       (bind-event conn
-                  ["CHANNEL_EXECUTE" chan-uuid event-uuid]
-                  start-handler))
+                  start-handler
+                  :event-name "CHANNEL_EXECUTE"
+                  :unique-id chan-uuid
+                  :application-uuid event-uuid))
 
     ;; Setup :end-handler, if present.
     (when end-handler
       (when-not @(enabled-special-events "CHANNEL_EXECUTE_COMPLETE")
         (assert (:ok (req-cmd "event" "CHANNEL_EXECUTE_COMPLETE"))))
       (bind-event conn
-                  ["CHANNEL_EXECUTE_COMPLETE" chan-uuid event-uuid]
-                  end-handler))
+                  end-handler
+                  :event-name "CHANNEL_EXECUTE_COMPLETE"
+                  :unique-id chan-uuid
+                  :application-uuid event-uuid))
 
     ;; Make the 'sendmsg' request.
     (req-sendmsg conn
