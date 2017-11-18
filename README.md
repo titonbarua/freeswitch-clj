@@ -10,6 +10,14 @@ A Clojure library to communicate with freeswitch event socket.
 - Automated event handler management for things like `bgapi` and `CUSTOM` events.
 - Uses high-performance `aleph` async framework under the hood.
 
+## Installation
+
+Add the following dependency to your project file:
+
+```clojure
+[freeswitch-clj "0.2.0"]
+```
+
 ## Usage
 
 `freeswitch-clj` can be used in both inbound mode and outbound mode.
@@ -60,7 +68,7 @@ A Clojure library to communicate with freeswitch event socket.
     (f/disconnect conn)
     ;; Wait for connection to close, by waiting for
     ;; a promise to be delivered.
-    @(conn :close?))
+    @(conn :closed?))
 
 ;; Listen for connections from freeswitch.
 (f/listen :port 10000 :handler conn-handler)

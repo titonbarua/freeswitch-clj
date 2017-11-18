@@ -36,7 +36,7 @@ A basic outbound setup where freeswitch is configured to knock on port `10000` f
     ;; Send 'exit' command.
     (f/disconnect conn)
     ;; Wait for connection to close.
-    @(conn :close?))
+    @(conn :closed?))
 
 
 ;; Listen for outbound connections from freeswitch on port 10000.
