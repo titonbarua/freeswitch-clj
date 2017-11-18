@@ -58,7 +58,6 @@
 (defn- send-str
   "Send some string data to freeswitch."
   [{:keys [closed? aleph-stream] :as conn} data]
-  (println "data to send: " (pr-str data))
   (if-not (realized? closed?)
     (stream/put! aleph-stream data)
     (throw (Exception. "Can't send data to through closed connection."))))
@@ -99,6 +98,9 @@
 
         (str/starts-with? cmd "NOEVENTS")
         (swap! enabled merge (zipmap special-events (repeat false)))
+
+        (str/starts-with? cmd "MYEVENTS")
+        (swap! enabled merge (zipmap special-events (repeat true)))
 
         :default nil))))
 
@@ -709,23 +711,33 @@
         [app-name app-arg] (str/split app-cmd #"\s+" 2)]
     ;; Setup :start-handler, if present.
     (when start-handler
-      (when-not @(enabled-special-events "CHANNEL_EXECUTE")
-        (assert (:ok (req-cmd "event" "CHANNEL_EXECUTE"))))
-      (bind-event conn
-                  start-handler
-                  :event-name "CHANNEL_EXECUTE"
-                  :unique-id chan-uuid
-                  :application-uuid event-uuid))
+      (when-not (@enabled-special-events "CHANNEL_EXECUTE")
+        (assert (:ok (req-cmd conn "event CHANNEL_EXECUTE"))))
+      (if chan-uuid
+        (bind-event conn
+                    start-handler
+                    :event-name "CHANNEL_EXECUTE"
+                    :unique-id chan-uuid
+                    :application-uuid event-uuid)
+        (bind-event conn
+                    start-handler
+                    :event-name "CHANNEL_EXECUTE"
+                    :application-uuid event-uuid)))
 
     ;; Setup :end-handler, if present.
     (when end-handler
-      (when-not @(enabled-special-events "CHANNEL_EXECUTE_COMPLETE")
-        (assert (:ok (req-cmd "event" "CHANNEL_EXECUTE_COMPLETE"))))
-      (bind-event conn
-                  end-handler
-                  :event-name "CHANNEL_EXECUTE_COMPLETE"
-                  :unique-id chan-uuid
-                  :application-uuid event-uuid))
+      (when-not (@enabled-special-events "CHANNEL_EXECUTE_COMPLETE")
+        (assert (:ok (req-cmd conn "event CHANNEL_EXECUTE_COMPLETE"))))
+      (if chan-uuid
+        (bind-event conn
+                    end-handler
+                    :event-name "CHANNEL_EXECUTE_COMPLETE"
+                    :unique-id chan-uuid
+                    :application-uuid event-uuid)
+        (bind-event conn
+                    end-handler
+                    :event-name "CHANNEL_EXECUTE_COMPLETE"
+                    :application-uuid event-uuid)))
 
     ;; Make the 'sendmsg' request.
     (req-sendmsg conn
