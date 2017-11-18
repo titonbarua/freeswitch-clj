@@ -239,8 +239,8 @@
 
 ;; How this works:
 ;; Event handlers are put into a map, associated with a set made
-;; of their keys. For example, Here's a sample value of the
-;; event-handlers map: {
+;; from all the headers they are interested in. For example,
+;; Here's a sample value of the event-handlers map: {
 ;;   #{} <catch-all-stray-events-handler>
 ;;   #{"EVENT-NAME:BACKGROUND_JOB"} <general-bgjob-handler-func>
 ;;   #{"EVENT-NAME:BACKGROUND_JOB" "JOB-UUID:1234"} <specific-bgjob-handler>
@@ -267,7 +267,8 @@
       (do (log-with-conn conn
                          :warn
                          "Ignoring handler-less event:"
-                         (event :Event-Name))
+                         event
+                         (event :event-name))
           false))))
 
 (defn- spawn-event-handler
@@ -311,7 +312,7 @@
 
         ;; Do different things based on message received.
         (doseq [m msgs]
-          (let [ctype (get-in m [:envelope-headers :Content-Type])]
+          (let [ctype (get-in m [:envelope-headers :content-type])]
             (log-wc-debug conn "Received msg:" (pr-str m))
             (case ctype
               "auth/request" (send-password conn m)
@@ -350,7 +351,7 @@
       ;; Run handler in a seperate async/tread.
       (async/thread
         (let [chan-data (-> (async/<!! (req conn ["connect"] {} nil))
-                            (dissoc :ok :body :Content-Type))]
+                            (dissoc :ok :body :content-type))]
           (init-outbound conn)
           (handler conn chan-data)
           (close conn)))
@@ -530,9 +531,9 @@
     ;; Ask freeswitch to send us BACKGROUND_JOB events.
     (if-not (@enabled-special-events "BACKGROUND_JOB")
       (req conn ["event" "BACKGROUND_JOB"] {} nil))
-    (let [job-uuid (str (uuid/v1))
+    (let [gen-job-uuid (str (uuid/v1))
           cmd-line ["bgapi" api-cmd]
-          cmd-hdrs {:Job-UUID job-uuid}
+          cmd-hdrs {:job-uuid gen-job-uuid}
           handler' (fn [con event]
                      (handler conn (parse-bgapi-response event)))]
       ;; By providing our own generated uuid, we can bind an
@@ -542,16 +543,16 @@
       (bind-event conn
                   handler'
                   :event-name "BACKGROUND_JOB"
-                  :job-uuid job-uuid)
-      (let [{:keys [Job-UUID] :as rslt} (async/<!! (req conn cmd-line cmd-hdrs nil))]
-        (if Job-UUID
+                  :job-uuid gen-job-uuid)
+      (let [{:keys [job-uuid] :as rslt} (async/<!! (req conn cmd-line cmd-hdrs nil))]
+        (if job-uuid
           ;; Just a sanity check.
-          (assert (= (norm-token Job-UUID)
+          (assert (= (norm-token gen-job-uuid)
                      (norm-token job-uuid)))
           ;; Remove the binding for a failed command.
           (unbind-event conn
                         :event-name "BACKGROUND_JOB"
-                        :job-uuid job-uuid))
+                        :job-uuid gen-job-uuid))
         rslt))))
 
 (defn req-event
@@ -728,13 +729,13 @@
 
     ;; Make the 'sendmsg' request.
     (req-sendmsg conn
-                 :Chan-UUID chan-uuid
-                 :Call-Command "execute"
-                 :Execute-App-Name app-name
-                 :Event-UUID event-uuid
-                 :Loops loops
-                 :Event-Lock event-lock
-                 :Content-Type "text/plain"
+                 :chan-uuid chan-uuid
+                 :call-command "execute"
+                 :execute-app-name app-name
+                 :event-uuid event-uuid
+                 :loops loops
+                 :event-lock event-lock
+                 :content-type "text/plain"
                  :body app-arg)))
 
 ;; TODO: req-call-hangup

@@ -70,7 +70,7 @@
   (->> data
        str/split-lines
        (map #(str/split % #"\s*:\s*" 2))
-       (map (fn [[k v]] [(keyword k) v]))
+       (map (fn [[k v]] [(keyword (str/lower-case k)) v]))
        (into {})))
 
 (defn decode-headers
@@ -92,7 +92,7 @@ decoded, message is nil."
 
     (let [[hdrs data-rest] (str/split data re-double-lineend 2)
           hdrs' (decode-envelope-headers hdrs)
-          clen (get hdrs' :Content-Length)]
+          clen (get hdrs' :content-length)]
       (if-not clen
          ;; Message has nothing but envelope headers.
         [{:envelope-headers hdrs'
@@ -124,21 +124,21 @@ Also returns rest of the data."
 (defn parse-command-reply
   "Parse a 'command/reply' message."
   [{:keys [envelope-headers envelope-content] :as msg}]
-  (assert (= (envelope-headers :Content-Type) "command/reply"))
-  (let [reply-text (envelope-headers :Reply-Text)
+  (assert (= (envelope-headers :content-type) "command/reply"))
+  (let [reply-text (envelope-headers :reply-text)
         ok (str/starts-with? reply-text "+")]
     (-> envelope-headers
-        (dissoc :Content-Type)
+        (dissoc :content-type)
         (assoc :ok ok))))
 
 (defn parse-api-response
   "Parse an 'api/response' message."
   [{:keys [envelope-headers envelope-content] :as msg}]
-  (assert (= (envelope-headers :Content-Type) "api/response"))
+  (assert (= (envelope-headers :content-type) "api/response"))
   (let [ok (not (str/starts-with? envelope-content "-"))]
     (-> envelope-headers
-        (dissoc :Content-Type)
-        (dissoc :Content-Length)
+        (dissoc :content-type)
+        (dissoc :content-length)
         (assoc :ok ok)
         (assoc :result envelope-content))))
 
@@ -153,31 +153,32 @@ Also returns rest of the data."
 (defmulti parse-event
   "Extract events from messages with content-type 'text/event-*'."
   (fn [{:keys [envelope-headers] :as msg}]
-    (envelope-headers :Content-Type)))
+    (envelope-headers :content-type)))
 
 (defmethod parse-event "text/event-plain"
   [{:keys [envelope-content] :as msg}]
   (let [[hdrs body] (str/split envelope-content re-double-lineend 2)
         hdrs' (decode-headers hdrs)
-        clen (get hdrs' :Content-Length)]
+        clen (get hdrs' :content-length)]
     (if-not clen
       ;; Message does not have body.
       (assoc hdrs' :body nil)
       (do (assert (= (count body)
-                     (Integer/parseInt (hdrs' :Content-Length))))
+                     (Integer/parseInt (hdrs' :content-length))))
           (-> hdrs'
-              (dissoc :Content-Length)
+              (dissoc :content-length)
               (assoc :body body))))))
 
 ; A typical JSON event content:
 ; {"Event-Name":"BACKGROUND_JOB","Core-UUID":"6fa5901e-72ea-4399-b689-afe55a84a2c5","FreeSWITCH-Hostname":"oscar-delu","FreeSWITCH-Switchname":"oscar-delu","FreeSWITCH-IPv4":"192.168.250.70","FreeSWITCH-IPv6":"::1","Event-Date-Local":"2017-11-05 13:07:27","Event-Date-GMT":"Sun, 05 Nov 2017 07:07:27 GMT","Event-Date-Timestamp":"1509865647430878","Event-Calling-File":"mod_event_socket.c","Event-Calling-Function":"api_exec","Event-Calling-Line-Number":"1557","Event-Sequence":"549","Job-UUID":"d4cd5087-130f-4df7-994d-885d77673d3d","Job-Command":"status","Content-Length":"327","_body":"UP 0 years, 0 days, 0 hours, 3 minutes, 30 seconds, 156 milliseconds, 7 microseconds\nFreeSWITCH (Version 1.6.19  64bit) is ready\n0 session(s) since startup\n0 session(s) - peak 0, last 5min 0 \n0 session(s) per Sec out of max 30, peak 0, last 5min 0 \n1000 session(s) max\nmin idle cpu 0.00/99.63\nCurrent Stack Size/Max 240K/8192K\n"}
 (defmethod parse-event "text/event-json"
   [{:keys [envelope-content] :as msg}]
-  (-> envelope-content
-      json/parse-string
-      (keywordize-keys)
-      (rename-keys {:_body :body})
-      (dissoc :Content-Length)))
+  (as-> envelope-content $
+        (json/parse-string $)
+        (map (fn [[k v]] [(keyword (str/lower-case k)) (str v)]) $)
+        (into {} $)
+        (rename-keys $ {:_body :body})
+        (dissoc $ :content-length)))
 
 ; A typical XML event, decoded with xml/parse:
 ; {:tag :event,
@@ -259,6 +260,6 @@ Also returns rest of the data."
                 (subs body 0 (Integer/parseInt Content-Length))
                 body)]
     (as-> headers $
-          (map (fn [[k v]] [(keyword k) (url-decode v)]) $)
+          (map (fn [[k v]] [(keyword (str/lower-case (name k))) (url-decode v)]) $)
           (into {} $)
           (assoc $ :body body'))))
