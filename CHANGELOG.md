@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2018-01-18
+
+### Changed:
+
+- Fixed '+' disappearing from phone numbers in event header values.
+- Fixed channel-data header values not being decoded in outbound handler.
+
 ## [0.2.0] - 2017-11-18
 
 ### Changed:
@@ -15,5 +22,6 @@
 
 Initial commit.
 
+[0.2.1]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/titonbarua/freeswitch-clj/compare/v0.1.0...v0.2.0
 [unreleased]: https://github.com/titonbarua/freeswitch-clj/compare/v0.1.0...HEAD
