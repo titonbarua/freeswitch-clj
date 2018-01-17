@@ -13,12 +13,19 @@
             [clojure.walk :refer [keywordize-keys]]
             [clojure.set :refer [rename-keys]]
 
-            [cheshire.core :as json]
-            [cemerick.url :refer [url-encode url-decode]]))
+            [cheshire.core :as json]))
 
 (def ^:private lineend "\n")
 (def ^:private double-lineend "\n\n")
 (def ^:private re-double-lineend #"\n\n")
+
+(defn url-decode
+  "Decode only percent encoded chars from a string."
+  [text]
+  (str/replace text
+               #"%([0-9A-Fa-f]{2})"
+               (fn [[_ hexed-char]]
+                 (str (char (Integer/parseInt hexed-char 16))))))
 
 (defn- absorb-newlines
   "Replace consecutive newlines (and surrounding whitespace chars)

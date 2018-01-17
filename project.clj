@@ -8,7 +8,6 @@
                  [danlentz/clj-uuid "0.1.7"]
                  [cheshire "5.8.0"]
                  [aleph "0.4.3"]
-                 [com.cemerick/url "0.1.1"]
 
                  ;; dependencies for testing and documentation.
                  [proto-repl "0.3.1"]

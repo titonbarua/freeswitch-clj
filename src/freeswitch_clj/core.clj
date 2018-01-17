@@ -15,10 +15,10 @@
             [aleph.tcp :as tcp]
             [manifold.stream :as stream]
             [taoensso.timbre :as log]
-            [cemerick.url :refer [url-decode]]
 
             [freeswitch-clj.protocol :refer [decode-all
                                              encode
+                                             url-decode
                                              parse-command-reply
                                              parse-api-response
                                              parse-bgapi-response
