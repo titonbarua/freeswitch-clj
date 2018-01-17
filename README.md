@@ -14,9 +14,7 @@ A Clojure library to communicate with freeswitch event socket.
 
 Add the following dependency to your project file:
 
-```clojure
-[freeswitch-clj "0.2.0"]
-```
+[![Clojars Project](https://img.shields.io/clojars/v/freeswitch-clj.svg?style=flat-square)](https://clojars.org/freeswitch-clj)
 
 ## Usage
 
