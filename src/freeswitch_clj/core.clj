@@ -15,6 +15,7 @@
             [aleph.tcp :as tcp]
             [manifold.stream :as stream]
             [taoensso.timbre :as log]
+            [cemerick.url :refer [url-decode]]
 
             [freeswitch-clj.protocol :refer [decode-all
                                              encode
@@ -352,8 +353,10 @@
 
       ;; Run handler in a seperate async/tread.
       (async/thread
-        (let [chan-data (-> (async/<!! (req conn ["connect"] {} nil))
-                            (dissoc :ok :body :content-type))]
+        (let [chan-data (as-> (async/<!! (req conn ["connect"] {} nil)) $
+                              (dissoc $ :ok :body :content-type)
+                              (map (fn [[k v]] [k (url-decode v)]) $)
+                              (into {} $))]
           (init-outbound conn)
           (handler conn chan-data)
           (close conn)))
