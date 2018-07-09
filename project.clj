@@ -8,11 +8,10 @@
                  [com.taoensso/timbre "4.10.0"]
                  [danlentz/clj-uuid "0.1.7"]
                  [cheshire "5.8.0"]
-                 [aleph "0.4.3"]
-
-                 ;; dependencies for testing and documentation.
-                 [codox-theme-rdash "0.1.2"]
-                 [digest "1.4.6"]]
-  :plugins [[lein-codox "0.10.3"]]
-  :codox {:metadata {:doc/format :plaintext}
-          :themes [:rdash]})
+                 [aleph "0.4.3"]]
+  :profiles {:test {:dependencies [[digest "1.4.6"]]}
+             :doc-gen {:plugins [[lein-codox "0.10.3"]]
+                       :codox {:metadata {:doc/format :markdown}
+                               :namespaces [freeswitch-clj.core]
+                               :themes [:rdash]}
+                       :dependencies [[codox-theme-rdash "0.1.2"]]}})

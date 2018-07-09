@@ -24,6 +24,8 @@
                                              parse-bgapi-response
                                              parse-event]]))
 
+(declare connect)
+
 (def
   ^{:private true
     :doc "This events are auto-handled by some high-level functions."}
@@ -68,7 +70,7 @@
   [tok]
   (str/upper-case (str/trim (str tok))))
 
-(defn norm-kv
+(defn- norm-kv
   "Convert a key-val pair into a normalized string, joined by colon."
   [[k v]]
   (str (norm-token (name k))
@@ -154,19 +156,23 @@
 (defn bind-event
   "Bind a handler function to the event.
 
-  Args:
-  * conn - The connection map.
-  * handler - The event handler function. It's signature should be:
+  __Args:__
+
+  * `conn` - The connection map.
+  * `handler` - The event handler function. It's signature should be:
               `(fn [conn event-map])`. Handler return value does not
               matter.
 
-  Keyword args:
+  __Kwargs:__
+
   All key value pairs are treated as event headers to match against.
 
-  Returns:
-  nil
+  __Returns:__
 
-  Example:
+  `nil`
+
+  __Usage Example:__
+
       ;; Set a catch-all-stray event handler.
       (bind-event conn
                   (fn [conn event]
@@ -185,9 +191,10 @@
                   :event-name \"BACKGROUND_JOB\"
                   :job-uuid \"1234\")
 
-  Note:
+  __Note:__
+
   * This does not send an 'event' command to freeswitch.
-  * Generally, you should use it's higher-level cousin: `req-event`.
+  * Generally, you should use it's higher-level cousin: [[req-event]].
   * Only one event handler is allowed per match criteria. New bindings
     override the old ones.
   * Specific handlers has higher priority than generalized ones.
@@ -203,14 +210,17 @@
 (defn unbind-event
   "Unbind the associated handler for an event.
 
-  Args:
-  * conn - The connection map.
+  __Args:__
 
-  Keyword args:
+  * `conn` - The connection map.
+
+  __Kwargs:__
+
   Event headers to match against.
 
-  Returns:
-  nil"
+  __Returns:__
+
+  `nil`"
   [conn
    & {:as event-headers}]
   (let [hkey (set (map norm-kv event-headers))]
@@ -286,8 +296,9 @@
 (defn close
   "Close a freeswitch connection.
 
-  Note:
-  Normally, you should use `disconnect` function to
+  __Note:__
+
+  Normally, you should use [[disconnect]] function to
   gracefully disconnect, which sends protocol epilogue."
   [{:keys [aleph-stream event-chan closed?] :as conn}]
   (if-not (realized? closed?)
@@ -367,18 +378,21 @@
 (defn connect
   "Make an inbound connection to freeswitch.
 
-  Keyword args:
-  * :host - (optional) Hostname or ipaddr of the freeswitch ESL server.
-            Defaults to 127.0.0.1.
-  * :port - (optional) Port where freeswitch is listening.
-            Defaults to 8021.
-  * :password - (optional) Password for freeswitch inbound connection.
-                Defaults to ClueCon.
+  __Kwargs:__
 
-  Returns:
+  * `:host` - (optional) Hostname or ipaddr of the freeswitch ESL server.
+              Defaults to `\"127.0.0.1\"`.
+  * `:port` - (optional) Port where freeswitch is listening.
+              Defaults to `8021`.
+  * `:password` - (optional) Password for freeswitch inbound connection.
+                  Defaults to `\"ClueCon\"`.
+
+  __Returns:__
+
   A map describing the connection.
 
-  Note:
+  __Note:__
+
   Blocks until authentication step is complete."
   [& {:keys [host port password]
       :or {host "127.0.0.1"
@@ -420,17 +434,20 @@
 (defn listen
   "Listen for outbound connections from freeswitch.
 
-  Keyword args:
-  * :port - Port to listen for freeswitch connections.
-  * :handler - A function with signature: `(fn [conn chan-data])`.
-               `conn` is a connection map which can be used with any
-               requester function, like: `req-cmd`, `req-api` etc.
-               `chan-data` is information about current channel.
+  __Kwargs:__
 
-  Returns:
+  * `:port` - Port to listen for freeswitch connections.
+  * `:handler` - A function with signature: `(fn [conn chan-data])`.
+                 `conn` is a connection map which can be used with any
+                 requester function, like: [[req-cmd]], [[req-api]] etc.
+                 `chan-data` is information about current channel.
+
+  __Returns:__
+
   An aleph server object.
 
-  Notes:
+  __Notes:__
+
   * Connection auto listens for 'myevents'. But no event handler is bound.
   * To stop listening for connections, call `.close` method of the returned
     server object.
@@ -446,11 +463,13 @@
 (defn disconnect
   "Gracefully disconnect from freeswitch by sending an 'exit' command.
 
-  Args:
-  * conn - The connection map.
+  __Args:__
 
-  Returns:
-  nil"
+  * `conn` - The connection map.
+
+  __Returns:__
+
+  `nil`"
   [conn]
   (let [{:keys [closed?]} conn]
     (if-not (realized? closed?)
@@ -461,19 +480,23 @@
 (defn req-cmd
   "Send a simple command request.
 
-  Args:
+  __Args:__
+
   * conn - The connection map.
   * cmd - The command string including additional arguments.
 
-  Returns:
+  __Returns:__
+
   A response map with key `:ok` bound to a boolean value
   describing success of the operation.
 
-  Example:
+  __Usage Example:__
+
       ;; Send a 'noevents' command.
       (req-cmd conn \"noevents\")
 
-  Note:
+  __Note:__
+
   Don't use this function to send special commands, like -
   'bgapi', 'sendmsg' etc. Rather use the high level functions
   provided for each."
@@ -489,16 +512,19 @@
 (defn req-api
   "Convenience function to make an api request.
 
-  Args:
-  * conn - The connection map.
-  * api-cmd - Api command string with arguments.
+  __Args:__
 
-  Returns:
+  * `conn` - The connection map.
+  * `api-cmd` - Api command string with arguments.
+
+  __Returns:__
+
   A response map with following keys:
-      * :ok - Whether the operation succeeded.
-      * :result - The result of the api request.
+      * `:ok` - Whether the operation succeeded.
+      * `:result` - The result of the api request.
 
-  Example:
+  __Usage Example:__
+
       ;; Send a 'status' api request.
       (println (req-api conn \"status\"))
   "
@@ -510,19 +536,22 @@
 (defn req-bgapi
   "Make a background api request.
 
-  Args:
-  * conn - The connection map.
-  * handler - Result handler function. Signature is: `(fn [conn rslt])`.
-              `rslt` is a map with following keys:
-                * :ok - Designates success of api operation.
-                * :result - Result of the api command.
-                * :event - The event which delivered the result.
-  * api-cmd : Api command string with arguments.
+  __Args:__
 
-  Returns:
+  * `conn` - The connection map.
+  * `handler` - Result handler function. Signature is: `(fn [conn rslt])`.
+                `rslt` is a map with following keys:
+                  * `:ok` - Designates success of api operation.
+                  * `:result` - Result of the api command.
+                  * `:event` - The event which delivered the result.
+  * `api-cmd` - Api command string with arguments.
+
+  __Returns:__
+
   The command response (not the api result).
 
-  Example:
+  __Usage Example:__
+
       ;; Execute a 'status' api request in background.
       (req-bgapi
         conn
@@ -563,23 +592,27 @@
 (defn req-event
   "Request to listen for an event and bind a handler for it.
 
-  Args:
-  * conn - The connection map.
-  * handler - Event handler function with signature:
-              `(fn [conn event-map])`.
+  __Args:__
 
-  Keyword args:
-  * :event-name - Name of the event. Special value `ALL` means
-                  subscribe to all events and the handler matches
-                  any value for :event-name.
+  * `conn` - The connection map.
+  * `handler` - Event handler function with signature:
+                `(fn [conn event-map])`.
+
+  __Kwargs:__
+
+  * `:event-name` - Name of the event. Special value `ALL` means
+                    subscribe to all events and the handler matches
+                    any value for `:event-name.`
   * All other keyword arguments are treated as event headers
     to match against. Like `:event-subclass` to match for custom
     events.
 
-  Returns:
+  __Returns:__
+
   Response of the event command.
 
-  Examples:
+  __Usage Examples:__
+
      ;; Listen for a regular event.
      (req-event
        conn
@@ -630,15 +663,18 @@
 (defn req-sendevent
   "Send a generated event to freeswitch.
 
-  Args:
-  * conn - The connection map.
-  * event-name - The name of the event.
+  __Args:__
 
-  Keyword args:
-  * :body - (optional) The body of the event.
+  * `conn` - The connection map.
+  * `event-name` - The name of the event.
+
+  __Keyword args:__
+
+  * `:body` - (optional) The body of the event.
   * Any other keyword arguments are treated as headers for the event.
 
-  Returns:
+  __Returns:__
+
   Response of the command.
   "
   [conn
@@ -652,20 +688,24 @@
 (defn req-sendmsg
   "Make a 'sendmsg' request to control a call.
 
-  Args:
-  * conn - The connection map.
+  __Args:__
 
-  Keyword args:
-  * :chan-uuid - The UUID of target channel. Not required in outbound mode.
-  * :body - (optional) Body of the message.
+  * `conn` - The connection map.
+
+  __Kwargs:__
+
+  * `:chan-uuid` - The UUID of target channel. Not required in outbound mode.
+  * `:body` - (optional) Body of the message.
   * Any other keyword arguments are treated as headers for the message.
 
-  Returns:
+  __Returns:__
+
   Reponse of the command.
 
-  Note:
+  __Note:__
+
   To execute a dialplan app or hangup the call, use higher
-  level funcs like `req-call-execute` which provide automated
+  level funcs like [[req-call-execute]] which provide automated
   event listener setup.
   "
   [conn
@@ -684,22 +724,25 @@
   "Send a 'sendmsg' request to a channel (or current channel, in case
   of freeswitch-outbound mode) to execute a dialplan application.
 
-  Args:
-  * app-cmd - The dialplan app to execute, including it's arguments.
-              i.e. \"playback /tmp/myfile.wav\"
+  __Args:__
 
-  Keyword args:
-  * :chan-uuid - The UUID of the target channel. Unnecessary in outbound mode.
-  * :event-uuid - (optional) An UUID to track the events generated by the command.
-                  If not provided, a random UUID is used. Note that as of freeswitch
-                  1.6, this UUID is returned as value of the `:application-uuid` header
-                  of the event.
-  * :start-handler - (optional) Function to process the CHANNEL_EXECUTE event.
-  * :end-handler - (optional) Function to process the CHANNEL_EXECUTE_COMPLETE event.
-  * :event-lock - (optional) Whether to execute apps in sync. Defaults to false.
-  * :loops - (optional) The number of times the app will be executed. Defaults to 1.
+  * `app-cmd` - The dialplan app to execute, including it's arguments.
+                i.e. \"playback /tmp/myfile.wav\"
 
-  Returns:
+  __Kwargs:__
+
+  * `:chan-uuid` - The UUID of the target channel. Unnecessary in outbound mode.
+  * `:event-uuid` - (optional) An UUID to track the events generated by the command.
+                    If not provided, a random UUID is used. Note that as of freeswitch
+                    1.6, this UUID is returned as value of the `:application-uuid` header
+                    of the event.
+  * `:start-handler` - (optional) Function to process the 'CHANNEL_EXECUTE' event.
+  * `:end-handler` - (optional) Function to process the 'CHANNEL_EXECUTE_COMPLETE' event.
+  * `:event-lock` - (optional) Whether to execute apps in sync. Defaults to false.
+  * `:loops` - (optional) The number of times the app will be executed. Defaults to 1.
+
+  __Returns:__
+
   Command response.
   "
   [conn

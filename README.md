@@ -75,7 +75,7 @@ Add the following dependency to your project file:
 (Thread/sleep 600000)
 ```
 
-Check out [more usage examples.](https://titonbarua.github.io/freeswitch-clj/usage_examples.html)
+Check out [tutorial](https://titonbarua.github.io/freeswitch-clj/tutorial.html) for more usage examples.
 
 ### Documentation
 
