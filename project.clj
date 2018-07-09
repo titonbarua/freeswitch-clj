@@ -13,6 +13,6 @@
              :doc-gen {:plugins [[lein-codox "0.10.3"]]
                        :codox {:metadata {:doc/format :markdown}
                                :namespaces [freeswitch-clj.core]
-                               :source-uri "https://github.com/titonbarua/freeswitch-clj/blob/{version}/{filepath}#L{line}"
+                               :source-uri "https://github.com/titonbarua/freeswitch-clj/blob/v{version}/{filepath}#L{line}"
                                :themes [:rdash]}
                        :dependencies [[codox-theme-rdash "0.1.2"]]}})
