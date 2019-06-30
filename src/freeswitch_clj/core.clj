@@ -152,7 +152,7 @@
   [conn]
   (log-wc-debug conn "Initiation rites starting ...")
   (req conn ["linger"] {} nil)
-  (req conn ["myevents"] {} nil)
+  #_(req conn ["myevents"] {} nil)
   (log-wc-debug conn "Initiation rites complete."))
 
 (defn bind-event
