@@ -5,12 +5,12 @@
 ;; This work is distributed under MIT Public License.
 ;; Please see the attached LICENSE file in project root.
 (ns ^{:doc "Functions to encode & decode text based protocol of freeswitch ESL."
-      :author "Titon Barua"}
+      :author "Titon Barua"
+      ;; Hide this namespace from public doc in cljdoc.org website.
+      :no-doc true}
  freeswitch-clj.protocol
   (:require [clojure.string :as str]
-            [clojure.zip :as zip]
             [clojure.xml :as xml]
-            [clojure.walk :refer [keywordize-keys]]
             [clojure.set :refer [rename-keys]]
 
             [cheshire.core :as json]))
