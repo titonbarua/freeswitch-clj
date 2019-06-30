@@ -14,6 +14,7 @@
             [clj-uuid :as uuid]
             [aleph.tcp :as tcp]
             [manifold.stream :as stream]
+            [manifold.deferred :as deferred]
             [taoensso.timbre :as log]
 
             [freeswitch-clj.protocol :refer [decode-all
@@ -388,6 +389,11 @@
               Defaults to `8021`.
   * `:password` - (optional) Password for freeswitch inbound connection.
                   Defaults to `\"ClueCon\"`.
+  * `:conn-timeout` - (optional) Connection timeout in seconds.
+                      Defaults to `10`.
+
+  You can add extra keyword arguments to fine tune behavior of `aleph.tcp/client`
+  function.
 
   __Returns:__
 
@@ -396,27 +402,30 @@
   __Note:__
 
   Blocks until authentication step is complete."
-  [& {:keys [host port password]
-      :or {host "127.0.0.1"
-           port 8021
-           password "ClueCon"}
-      :as kwargs}]
-  (let [strm @(tcp/client {:host host :port port})]
-    (let [conn {:host host
-                :port port
-                :password password
+  [& {:keys [host port password conn-timeout]
+      :or   {host         "127.0.0.1"
+             port         8021
+             password     "ClueCon"
+             conn-timeout 10}
+      :as   kwargs}]
+  (let [strm @(-> (tcp/client (dissoc kwargs :password :conn-timeout))
+                 (deferred/timeout! (int (* conn-timeout 1000))))]
+    (let [conn {:host           host
+                :port           port
+                :password       password
+                :conn-timeout   conn-timeout
                 :authenticated? (promise)
-                :mode :fs-inbound
+                :mode           :fs-inbound
 
-                :closed? (promise)
+                :closed?      (promise)
                 :aleph-stream strm
-                :rx-buff (atom "")
-                :req-index (ref 0)
-                :resp-index (ref 0)
-                :rslt-chans (atom {})
+                :rx-buff      (atom "")
+                :req-index    (ref 0)
+                :resp-index   (ref 0)
+                :rslt-chans   (atom {})
 
-                :event-handlers (atom {})
-                :event-chan (async/chan)
+                :event-handlers         (atom {})
+                :event-chan             (async/chan)
                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
       (log-wc-debug conn "Connected.")
       (spawn-event-handler conn)
