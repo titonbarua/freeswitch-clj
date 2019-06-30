@@ -16,6 +16,12 @@ Add the following dependency to your project file:
 
 [![Clojars Project](https://img.shields.io/clojars/v/freeswitch-clj.svg?style=flat-square)](https://clojars.org/freeswitch-clj)
 
+## Documentation
+
+Full API documentation is available at [cljdoc.org](https://cljdoc.org/d/freeswitch-clj/freeswitch-clj/CURRENT).
+
+[![cljdoc badge](https://cljdoc.org/badge/freeswitch-clj/freeswitch-clj)](https://cljdoc.org/d/freeswitch-clj/freeswitch-clj/CURRENT)
+
 ## Usage
 
 `freeswitch-clj` can be used in both inbound mode and outbound mode.
@@ -75,11 +81,7 @@ Add the following dependency to your project file:
 (Thread/sleep 600000)
 ```
 
-Check out [tutorial](https://titonbarua.github.io/freeswitch-clj/tutorial.html) for more usage examples.
-
-### Documentation
-
-Full API documentation can be browsed from [here.](https://titonbarua.github.io/freeswitch-clj)
+Check out [tutorial](https://cljdoc.org/d/freeswitch-clj/freeswitch-clj/CURRENT/doc/tutorial) for more usage examples.
 
 ## License
 
