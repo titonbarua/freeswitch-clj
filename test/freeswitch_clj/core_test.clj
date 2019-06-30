@@ -11,7 +11,7 @@
         fs-port (get env "FS_PORT" 8021)
         fs-pass (get env "FS_PASS" "ClueCon")]
     (let [conn (connect :host fs-host
-                        :port fs-port
+                        :port (Integer/parseInt fs-port)
                         :password fs-pass)]
 
       ;; Send a simple 'status' api command.
