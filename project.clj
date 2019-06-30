@@ -4,12 +4,12 @@
   :license {:name "MIT Public License"
             :url "https://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.8.0" :scope "provided"]
-                 [org.clojure/core.async "0.4.474"]
+                 [org.clojure/core.async "0.4.500"]
                  [com.taoensso/timbre "4.10.0"]
-                 [danlentz/clj-uuid "0.1.7"]
-                 [cheshire "5.8.0"]
-                 [aleph "0.4.3"]]
-  :profiles {:test {:dependencies [[digest "1.4.6"]]}
+                 [danlentz/clj-uuid "0.1.9"]
+                 [cheshire "5.8.1"]
+                 [aleph "0.4.6"]]
+  :profiles {:test {:dependencies [[digest "1.4.9"]]}
              :doc-gen {:plugins [[lein-codox "0.10.3"]]
                        :codox {:metadata {:doc/format :markdown}
                                :namespaces [freeswitch-clj.core]
