@@ -24,6 +24,8 @@
                                              parse-bgapi-response
                                              parse-event]]))
 
+(log/merge-config! {:level :warn})
+
 (declare connect)
 
 (def
