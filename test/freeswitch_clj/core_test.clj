@@ -1,6 +1,9 @@
 (ns freeswitch-clj.core-test
   (:require [clojure.test :refer :all]
+            [taoensso.timbre :as log]
             [freeswitch-clj.core :refer :all]))
+
+(log/merge-config! {:level :debug})
 
 (deftest test-fs-inbound-session
   (let [env     (System/getenv)
