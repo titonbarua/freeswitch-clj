@@ -155,8 +155,11 @@
   "Do some initiation rites in outbound mode."
   [conn]
   (log-wc-debug conn "Initiation rites starting ...")
+  ;; NOTE: Without linger, hangup/error events are not sent and freeswitch
+  ;; closes the connection prematurely.
   (req conn ["linger"] {} nil)
-  #_(req conn ["myevents"] {} nil)
+  ;; NOTE: Without myevents, event processing won't work.
+  (req conn ["myevents"] {} nil)
   (log-wc-debug conn "Initiation rites complete."))
 
 (defn bind-event
