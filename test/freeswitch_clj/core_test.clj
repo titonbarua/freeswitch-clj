@@ -8,7 +8,7 @@
 (deftest test-fs-inbound-session
   (let [env     (System/getenv)
         fs-host (get env "FS_HOST" "127.0.0.1")
-        fs-port (get env "FS_PORT" 8021)
+        fs-port (get env "FS_PORT" "8021")
         fs-pass (get env "FS_PASS" "ClueCon")]
     (let [conn (connect :host fs-host
                         :port (Integer/parseInt fs-port)
