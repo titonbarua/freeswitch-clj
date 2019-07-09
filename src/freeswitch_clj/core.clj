@@ -591,6 +591,12 @@
           cmd-line ["bgapi" api-cmd]
           cmd-hdrs {:job-uuid gen-job-uuid}
           handler' (fn [con event]
+                     ;; As the event is being processed, we don't need the
+                     ;; binding anymore. Otherwise, this might cause memory leak
+                     ;; for long lived connections.
+                     (unbind-event conn
+                                   :event-name "BACKGROUND_JOB"
+                                   :job-uuid gen-job-uuid)
                      (handler conn (parse-bgapi-response event)))]
       ;; By providing our own generated uuid, we can bind an
       ;; event handler before the response is generated. Relieing on
@@ -790,12 +796,21 @@
         (assert (:ok (req-cmd conn "event CHANNEL_EXECUTE"))))
       (if chan-uuid
         (bind-event conn
-                    start-handler
+                    (fn [conn event]
+                      (unbind-event conn
+                                    :event-name "CHANNEL_EXECUTE"
+                                    :unique-id chan-uuid
+                                    :application-uuid event-uuid)
+                      (start-handler conn event))
                     :event-name "CHANNEL_EXECUTE"
                     :unique-id chan-uuid
                     :application-uuid event-uuid)
         (bind-event conn
-                    start-handler
+                    (fn [conn event]
+                      (unbind-event conn
+                                    :event-name "CHANNEL_EXECUTE"
+                                    :application-uuid event-uuid)
+                      (start-handler conn event))
                     :event-name "CHANNEL_EXECUTE"
                     :application-uuid event-uuid)))
 
@@ -805,12 +820,21 @@
         (assert (:ok (req-cmd conn "event CHANNEL_EXECUTE_COMPLETE"))))
       (if chan-uuid
         (bind-event conn
-                    end-handler
+                    (fn [conn event]
+                      (unbind-event conn
+                                    :event-name "CHANNEL_EXECUTE_COMPLETE"
+                                    :unique-id chan-uuid
+                                    :application-uuid event-uuid)
+                      (end-handler conn event))
                     :event-name "CHANNEL_EXECUTE_COMPLETE"
                     :unique-id chan-uuid
                     :application-uuid event-uuid)
         (bind-event conn
-                    end-handler
+                    (fn [conn event]
+                      (unbind-event conn
+                                    :event-name "CHANNEL_EXECUTE_COMPLETE"
+                                    :application-uuid event-uuid)
+                      (end-handler conn event))
                     :event-name "CHANNEL_EXECUTE_COMPLETE"
                     :application-uuid event-uuid)))
 
