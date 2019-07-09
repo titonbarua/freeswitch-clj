@@ -113,13 +113,16 @@
 (defn req
   "Make a request to freeswitch.
 
-  Args:
-  * conn - Freeswitch connection.
+  __Args:__
 
-  Returns:
+  * `conn` - Freeswitch connection.
+
+  __Returns:__
+
   An `async/promise-chan` which returns the response when available.
 
-  NOTE:
+  __Note:__
+
   This is a low level function, intended to be used by other
   high-level functions like `req-cmd` etc."
   [conn
@@ -176,23 +179,25 @@
 
   __Usage Example:__
 
-      ;; Set a catch-all-stray event handler.
-      (bind-event conn
-                  (fn [conn event]
-                    (println \"I match all stray events!\")))
+  ```
+  ;; Set a catch-all-stray event handler.
+  (bind-event conn
+              (fn [conn event]
+                (println \"I match all stray events!\")))
 
-      ;; Create a BACKGROUND_JOB event handler.
-      (bind-event conn
-                  (fn [conn event]
-                    (println \"I match all BG_JOB events.\"))
-                  :event-name \"BACKGROUND_JOB\")
+  ;; Create a BACKGROUND_JOB event handler.
+  (bind-event conn
+              (fn [conn event]
+                (println \"I match all BG_JOB events.\"))
+              :event-name \"BACKGROUND_JOB\")
 
-      ;; Create BACKGROUND_JOB event handler for a specific job-uuid.
-      (bind-event conn
-                  (fn [conn event]
-                    (println \"I match BG_JOB with specific UUID.\"))
-                  :event-name \"BACKGROUND_JOB\"
-                  :job-uuid \"1234\")
+  ;; Create BACKGROUND_JOB event handler for a specific job-uuid.
+  (bind-event conn
+              (fn [conn event]
+                (println \"I match BG_JOB with specific UUID.\"))
+              :event-name \"BACKGROUND_JOB\"
+              :job-uuid \"1234\")
+  ```
 
   __Note:__
 
@@ -503,8 +508,10 @@
 
   __Usage Example:__
 
-      ;; Send a 'noevents' command.
-      (req-cmd conn \"noevents\")
+  ```
+  ;; Send a 'noevents' command.
+  (req-cmd conn \"noevents\")
+  ```
 
   __Note:__
 
@@ -531,13 +538,16 @@
   __Returns:__
 
   A response map with following keys:
-      * `:ok` - Whether the operation succeeded.
-      * `:result` - The result of the api request.
+
+  * `:ok` - Whether the operation succeeded.
+  * `:result` - The result of the api request.
 
   __Usage Example:__
 
-      ;; Send a 'status' api request.
-      (println (req-api conn \"status\"))
+  ```
+  ;; Send a 'status' api request.
+  (println (req-api conn \"status\"))
+  ```
   "
   [conn
    api-cmd]
@@ -551,10 +561,10 @@
 
   * `conn` - The connection map.
   * `handler` - Result handler function. Signature is: `(fn [conn rslt])`.
-                `rslt` is a map with following keys:
-                  * `:ok` - Designates success of api operation.
-                  * `:result` - Result of the api command.
-                  * `:event` - The event which delivered the result.
+    `rslt` is a map with following keys:
+      * `:ok` - Designates success of api operation.
+      * `:result` - Result of the api command.
+      * `:event` - The event which delivered the result.
   * `api-cmd` - Api command string with arguments.
 
   __Returns:__
@@ -563,11 +573,12 @@
 
   __Usage Example:__
 
-      ;; Execute a 'status' api request in background.
-      (req-bgapi
-        conn
-        (fn [conn rslt] (println rslt))
-        \"status\")
+  ```
+  ;; Execute a 'status' api request in background.
+  (req-bgapi conn
+             (fn [conn rslt] (println rslt))
+             \"status\")
+  ```
   "
   [conn
    handler
@@ -624,27 +635,29 @@
 
   __Usage Examples:__
 
-     ;; Listen for a regular event.
-     (req-event
-       conn
-       (fn [conn event]
-         (println \"Got a call update!\"))
-       :event-name \"CALL_UPDATE\")
+  ```
+  ;; Listen for a regular event.
+  (req-event
+    conn
+    (fn [conn event]
+      (println \"Got a call update!\"))
+    :event-name \"CALL_UPDATE\")
 
-     ;; Listen for a custom event with specific subclass.
-     (req-event
-       conn
-       (fn [conn event]
-         (println \"Inside a menu!\"))
-       :event-name \"CUSTOM\"
-       :event-subclass \"menu:enter\")
+  ;; Listen for a custom event with specific subclass.
+  (req-event
+    conn
+    (fn [conn event]
+      (println \"Inside a menu!\"))
+    :event-name \"CUSTOM\"
+    :event-subclass \"menu:enter\")
 
-     ;; Listen for all events and setup a catch-all-stray handler.
-     (req-event
-       conn
-       (fn [conn event]
-         (println event))
-       :event-name \"ALL\")
+  ;; Listen for all events and setup a catch-all-stray handler.
+  (req-event
+    conn
+    (fn [conn event]
+      (println event))
+    :event-name \"ALL\")
+  ```
   "
   [conn
    handler
