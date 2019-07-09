@@ -46,7 +46,7 @@
 
 (defn encode
   "Encode an outgoing message."
-  [cmd-line cmd-hdrs cmd-body]
+  [cmd-line cmd-hdrs ^String cmd-body]
   (str (->> cmd-line
             (map str/trim)
             (str/join " ")
@@ -254,7 +254,7 @@ Also returns rest of the data."
                 (into {}))])))
 
 (defmethod parse-event "text/event-xml"
-  [{:keys [envelope-content] :as msg}]
+  [{:keys [^String envelope-content] :as msg}]
   (let [[_ xmap] (-> envelope-content
                      (.getBytes)
                      (java.io.ByteArrayInputStream.)

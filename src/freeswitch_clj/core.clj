@@ -43,7 +43,7 @@
 (defn- log-with-conn
   "Log something with the context of conenction."
   [{:keys [mode aleph-stream] :as conn} lvl msg & args]
-  (let [sdesc (.description aleph-stream)]
+  (let [sdesc (stream/description aleph-stream)]
     (log/logf lvl
               "[%s L%s <-> R%s] %s"
               (name mode)
@@ -310,7 +310,7 @@
   gracefully disconnect, which sends protocol epilogue."
   [{:keys [aleph-stream event-chan closed?] :as conn}]
   (if-not (realized? closed?)
-    (do (.close aleph-stream)
+    (do (stream/close! aleph-stream)
         (async/close! event-chan)
         (deliver closed? true))))
 
@@ -322,7 +322,7 @@
 (defn- create-aleph-data-consumer
   "Create a data consumer to process incoming data in an aleph stream."
   [{:keys [rx-buff aleph-stream] :as conn}]
-  (fn [data-bytes]
+  (fn [^bytes data-bytes]
     (if (nil? data-bytes)
       ;; Handle disconnection.
       (do (log-wc-debug conn "Disconnected.")
