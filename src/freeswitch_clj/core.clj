@@ -297,12 +297,21 @@
 
 (defn- spawn-event-dispatcher
   "Create a go-block to handle incoming events."
-  [{:keys [event-chan] :as conn}]
-  (async/go
-    (loop [event (async/<! event-chan)]
-      (when event
-        (dispatch-event conn event)
-        (recur (async/<! event-chan))))))
+  [async-thread-type {:keys [event-chan] :as conn}]
+  (if (= async-thread-type :go-block)
+    ;; Spawn a go block.
+    (async/go
+      (loop [event (async/<! event-chan)]
+        (when event
+          (dispatch-event conn event)
+          (recur (async/<! event-chan)))))
+
+    ;; Spawn a thread.
+    (async/thread
+      (loop [event (async/<!! event-chan)]
+        (when event
+          (dispatch-event conn event)
+          (recur (async/<!! event-chan)))))))
 
 (defn close
   "Close a freeswitch connection.
@@ -350,9 +359,33 @@
               (println "Ignoring unexpected content-type: " ctype))))
         (reset! rx-buff data-rest)))))
 
+(defn- setup-and-handle-connection
+  [conn chan-data pre-init-fn custom-init-fn async-thread-type handler]
+  ;; Call pre-init-fn, if given.
+  (when pre-init-fn
+    (pre-init-fn conn chan-data))
+
+  ;; Send initiation rites.
+  (if custom-init-fn
+    (custom-init-fn conn chan-data)
+    (init-outbound conn chan-data))
+
+  ;; Spawn event dispatcher thread.
+  (spawn-event-dispatcher async-thread-type conn)
+
+  ;; Call connection handler.
+  (handler conn chan-data))
+
+(defn- chan-data-from-connect-reply
+  [connect-reply]
+  (as-> connect-reply $
+    (dissoc $ :ok :body :content-type)
+    (map (fn [[k v]] [k (url-decode v)]) $)
+    (into {} $)))
+
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."
-  [handler custom-init-fn pre-init-fn]
+  [handler custom-init-fn pre-init-fn async-thread-type]
   (fn [strm info]
     (let [conn {:aleph-conn-info info
                 :mode :fs-outbound
@@ -372,29 +405,34 @@
       ;; Bind a consumer for incoming data bytes.
       (stream/consume (create-aleph-data-consumer conn) strm)
 
-      ;; Run handler in a seperate async/tread.
-      (async/thread
-        (try
-          (let [chan-data (as-> (async/<!! (req conn ["connect"] {} nil)) $
-                            (dissoc $ :ok :body :content-type)
-                            (map (fn [[k v]] [k (url-decode v)]) $)
-                            (into {} $))]
-            ;; Call pre-init-fn, if given.
-            (when pre-init-fn
-              (pre-init-fn conn chan-data))
+      (if (= async-thread-type :go-block)
+        ;; Run handler in a go-block.
+        (async/go
+          (try
+            (let [chan-data (-> (async/<! (req conn ["connect"] {} nil))
+                                (chan-data-from-connect-reply))]
+              (setup-and-handle-connection conn
+                                           chan-data
+                                           pre-init-fn
+                                           custom-init-fn
+                                           async-thread-type
+                                           handler))
+            (finally
+              (close conn))))
 
-            ;; Send initiation rites.
-            (if custom-init-fn
-              (custom-init-fn conn chan-data)
-              (init-outbound conn chan-data))
-
-            ;; Spawn event dispatcher thread.
-            (spawn-event-dispatcher conn)
-
-            ;; Call connection handler.
-            (handler conn chan-data))
-          (finally
-            (close conn))))
+        ;; Run handler in an async thread.
+        (async/thread
+          (try
+            (let [chan-data (-> (async/<!! (req conn ["connect"] {} nil))
+                                (chan-data-from-connect-reply))]
+              (setup-and-handle-connection conn
+                                           chan-data
+                                           pre-init-fn
+                                           custom-init-fn
+                                           async-thread-type
+                                           handler))
+            (finally
+              (close conn)))))
 
       ;; Return the aleph stream.
       strm)))
@@ -449,7 +487,7 @@
                 :event-chan             (async/chan)
                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
       (log-wc-debug conn "Connected.")
-      (spawn-event-handler conn)
+      (spawn-event-dispatcher :thread conn)
 
       ;; Hook-up incoming data handler.
       (stream/consume (create-aleph-data-consumer conn) strm)
@@ -482,6 +520,9 @@
                      is turned on and before connection initiation function is called.
                      If you predictably want to receive all early events sent by
                      freeswitch, setup your event handlers here.
+  * `:async-thread-type` - (Optional) A keyword indicating types of threads to spawn
+                           for event handling and dispatch. Valid values are -
+                           `:thread` and `:go-block`. Default is `:thread`.
 
   __Returns:__
 
@@ -492,13 +533,22 @@
   * Connection auto listens for 'myevents'. But no event handler is bound.
   * To stop listening for connections, call `.close` method of the returned
     server object.
+  * Two threads/go-blocks are spawned to handle a each connection. If you are
+    on budget, pass `:go-block` as `:async-thread-type`.
   "
-  [& {:keys [port handler custom-init-fn pre-init-fn]
-      :as kwargs}]
+  [& {:keys [port
+             handler
+             custom-init-fn
+             pre-init-fn
+             async-thread-type]
+      :or   {custom-init-fn    nil
+             pre-init-fn       nil
+             async-thread-type :thread}
+      :as   kwargs}]
   {:pre [(integer? port)
          (fn? handler)]}
   (log/info "Listening for freeswitch at port: " port)
-  (tcp/start-server (create-aleph-conn-handler handler custom-init-fn pre-init-fn)
+  (tcp/start-server (create-aleph-conn-handler handler custom-init-fn pre-init-fn async-thread-type)
                     {:port port}))
 
 (defn disconnect
