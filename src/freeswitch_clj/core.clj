@@ -450,6 +450,9 @@
                   Defaults to `\"ClueCon\"`.
   * `:conn-timeout` - (optional) Connection timeout in seconds.
                       Defaults to `10`.
+  * `async-thread-type` - (optional) The type of thread to spawn for event
+                          dispatcher. Valid values are - `thread` and `go-block`.
+                          Default is - `thread`.
 
   You can add extra keyword arguments to fine tune behavior of `aleph.tcp/client`
   function.
@@ -461,11 +464,12 @@
   __Note:__
 
   Blocks until authentication step is complete."
-  [& {:keys [host port password conn-timeout]
-      :or   {host         "127.0.0.1"
-             port         8021
-             password     "ClueCon"
-             conn-timeout 10}
+  [& {:keys [host port password conn-timeout async-thread-type]
+      :or   {host              "127.0.0.1"
+             port              8021
+             password          "ClueCon"
+             conn-timeout      10
+             async-thread-type :thread}
       :as   kwargs}]
   (let [strm @(-> (tcp/client (dissoc kwargs :password :conn-timeout))
                  (deferred/timeout! (int (* conn-timeout 1000))))]
@@ -487,7 +491,7 @@
                 :event-chan             (async/chan)
                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
       (log-wc-debug conn "Connected.")
-      (spawn-event-dispatcher :thread conn)
+      (spawn-event-dispatcher async-thread-type conn)
 
       ;; Hook-up incoming data handler.
       (stream/consume (create-aleph-data-consumer conn) strm)
