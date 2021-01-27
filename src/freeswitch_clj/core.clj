@@ -153,7 +153,7 @@
 
 (defn- init-outbound
   "Do some initiation rites in outbound mode."
-  [conn]
+  [conn chan-data]
   (log-wc-debug conn "Initiation rites starting ...")
   ;; NOTE: Without linger, hangup/error events are not sent and freeswitch
   ;; closes the connection prematurely.
@@ -352,7 +352,7 @@
 
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."
-  [handler]
+  [handler custom-init-fn]
   (fn [strm info]
     (let [conn {:aleph-conn-info info
                 :mode :fs-outbound
@@ -379,7 +379,9 @@
                               (dissoc $ :ok :body :content-type)
                               (map (fn [[k v]] [k (url-decode v)]) $)
                               (into {} $))]
-          (init-outbound conn)
+          (if custom-init-fn
+            (custom-init-fn conn chan-data)
+            (init-outbound conn chan-data))
           (try
             (handler conn chan-data)
             (finally
@@ -462,6 +464,10 @@
                  `conn` is a connection map which can be used with any
                  requester function, like: [[req-cmd]], [[req-api]] etc.
                  `chan-data` is information about current channel.
+  * `:custom-init-fn` - (Optional) A function with signature: `(fn [conn chan-data])`.
+                        If provided, it will replace the builtin function which sends
+                        initiation rites, like `linger` and `myevents` upon connection
+                        creation.
 
   __Returns:__
 
@@ -473,12 +479,12 @@
   * To stop listening for connections, call `.close` method of the returned
     server object.
   "
-  [& {:keys [port handler]
+  [& {:keys [port handler custom-init-fn]
       :as kwargs}]
   {:pre [(integer? port)
          (fn? handler)]}
   (log/info "Listening for freeswitch at port: " port)
-  (tcp/start-server (create-aleph-conn-handler handler)
+  (tcp/start-server (create-aleph-conn-handler handler custom-init-fn)
                     {:port port}))
 
 (defn disconnect
