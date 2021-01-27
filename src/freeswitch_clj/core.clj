@@ -380,8 +380,10 @@
                               (map (fn [[k v]] [k (url-decode v)]) $)
                               (into {} $))]
           (init-outbound conn)
-          (handler conn chan-data)
-          (close conn)))
+          (try
+            (handler conn chan-data)
+            (finally
+              (close conn)))))
 
       ;; Return the aleph stream.
       strm)))
