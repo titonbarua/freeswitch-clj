@@ -479,9 +479,9 @@
                         creation.
   * `:pre-init-fn` - (Optional) A function with signature: `(fn [conn chan-data])`.
                      If provided, this function is called before event dispatcher
-                     is turned on and before the connection initiation function. If
-                     you absolutely don't want to lose any freeswitch events due to
-                     CPU congestion or GC pauses, setup your event handlers here.
+                     is turned on and before connection initiation function is called.
+                     If you predictably want to receive all early events sent by
+                     freeswitch, setup your event handlers here.
 
   __Returns:__
 
