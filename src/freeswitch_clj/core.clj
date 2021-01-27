@@ -278,7 +278,7 @@
 ;; Note:
 ;; If multiple biggest subset are found, there is no guarantee
 ;; about which one will get selected.
-(defn- handle-event
+(defn- dispatch-event
   [{:keys [event-handlers] :as conn} event]
   (let [event-keys (set (map norm-kv event))
         hkey (->> (keys @event-handlers)
@@ -295,13 +295,13 @@
                          (event :event-name))
           false))))
 
-(defn- spawn-event-handler
+(defn- spawn-event-dispatcher
   "Create a go-block to handle incoming events."
   [{:keys [event-chan] :as conn}]
   (async/go
     (loop [event (async/<! event-chan)]
       (when event
-        (handle-event conn event)
+        (dispatch-event conn event)
         (recur (async/<! event-chan))))))
 
 (defn close
@@ -352,7 +352,7 @@
 
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."
-  [handler custom-init-fn]
+  [handler custom-init-fn pre-init-fn]
   (fn [strm info]
     (let [conn {:aleph-conn-info info
                 :mode :fs-outbound
@@ -368,24 +368,33 @@
                 :event-chan (async/chan)
                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
       (log-wc-debug conn "Connected.")
-      (spawn-event-handler conn)
 
       ;; Bind a consumer for incoming data bytes.
       (stream/consume (create-aleph-data-consumer conn) strm)
 
       ;; Run handler in a seperate async/tread.
       (async/thread
-        (let [chan-data (as-> (async/<!! (req conn ["connect"] {} nil)) $
-                              (dissoc $ :ok :body :content-type)
-                              (map (fn [[k v]] [k (url-decode v)]) $)
-                              (into {} $))]
-          (if custom-init-fn
-            (custom-init-fn conn chan-data)
-            (init-outbound conn chan-data))
-          (try
-            (handler conn chan-data)
-            (finally
-              (close conn)))))
+        (try
+          (let [chan-data (as-> (async/<!! (req conn ["connect"] {} nil)) $
+                            (dissoc $ :ok :body :content-type)
+                            (map (fn [[k v]] [k (url-decode v)]) $)
+                            (into {} $))]
+            ;; Call pre-init-fn, if given.
+            (when pre-init-fn
+              (pre-init-fn conn chan-data))
+
+            ;; Send initiation rites.
+            (if custom-init-fn
+              (custom-init-fn conn chan-data)
+              (init-outbound conn chan-data))
+
+            ;; Spawn event dispatcher thread.
+            (spawn-event-dispatcher conn)
+
+            ;; Call connection handler.
+            (handler conn chan-data))
+          (finally
+            (close conn))))
 
       ;; Return the aleph stream.
       strm)))
@@ -468,6 +477,11 @@
                         If provided, it will replace the builtin function which sends
                         initiation rites, like `linger` and `myevents` upon connection
                         creation.
+  * `:pre-init-fn` - (Optional) A function with signature: `(fn [conn chan-data])`.
+                     If provided, this function is called before event dispatcher
+                     is turned on and before the connection initiation function. If
+                     you absolutely don't want to lose any freeswitch events due to
+                     CPU congestion or GC pauses, setup your event handlers here.
 
   __Returns:__
 
@@ -479,12 +493,12 @@
   * To stop listening for connections, call `.close` method of the returned
     server object.
   "
-  [& {:keys [port handler custom-init-fn]
+  [& {:keys [port handler custom-init-fn pre-init-fn]
       :as kwargs}]
   {:pre [(integer? port)
          (fn? handler)]}
   (log/info "Listening for freeswitch at port: " port)
-  (tcp/start-server (create-aleph-conn-handler handler custom-init-fn)
+  (tcp/start-server (create-aleph-conn-handler handler custom-init-fn pre-init-fn)
                     {:port port}))
 
 (defn disconnect
