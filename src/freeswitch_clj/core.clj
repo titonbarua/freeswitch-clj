@@ -471,8 +471,8 @@
              conn-timeout      10
              async-thread-type :thread}
       :as   kwargs}]
-  (let [strm @(-> (tcp/client (dissoc kwargs :password :conn-timeout))
-                 (deferred/timeout! (int (* conn-timeout 1000))))]
+  (let [strm @(-> (tcp/client (dissoc kwargs :password :conn-timeout :async-thread-type))
+                  (deferred/timeout! (int (* conn-timeout 1000))))]
     (let [conn {:host           host
                 :port           port
                 :password       password
