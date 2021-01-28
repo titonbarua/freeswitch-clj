@@ -2,11 +2,36 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2021-01-28
+
+### Added
+- Added a new parameter - `:pre-init-fn` to `listen` function.
+  This can help avoid unpredictability of event handling in
+  freeswitch-outbound mode.
+- Added a new parameter - `:async-thread-type` to `listen`.
+  This parameter determines the type of threads(2 in total) to
+  spawn for event dispatch and handling. Valid values are -
+  `:thread` and `:go-block`. By default, `:thread` is used.
+  In previous versions, go-block was used for dispatch, while
+  thread was used for handler execution.
+- Added a new parameter - `:async-thread-type` to `connect`
+  function. This is analogous to the new parameter for `listen.
+- Added a docker based testing environment.
+- Added test to check correct behavior of `listen` function,
+  with and without `:pre-init-fn`.
+
+## [0.2.3] - 2021-01-28
+
+### Changed
+- Handler execution and subsequent connection closing is now wrapped in a
+  try-finally block so that handler crash does not keep the connection open.
+
+
 ## [0.2.2] - 2019-06-30
 
 ### Changed:
 - Test and doc dependencies are moved to seperate profiles.
-- Test is now configurable with `FS_HOST`, `FST_PORT` and `FS_PASS` environment variables.
+- Test is now configurable with `FS\_HOST`, `FS\_PORT` and `FS\_PASS` environment variables.
 - Changed doc format to markdown.
 - Changed documentation links from github pages to cljdoc.org.
 - Updated project dependencies.
@@ -42,6 +67,9 @@
 
 Initial commit.
 
+[1.0.0]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.3...v1.0.0
+[0.2.3]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/titonbarua/freeswitch-clj/compare/v0.1.0...v0.2.0
 [unreleased]: https://github.com/titonbarua/freeswitch-clj/compare/v0.1.0...HEAD
