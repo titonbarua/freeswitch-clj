@@ -1,6 +1,6 @@
 ;; Filename: src/freeswitch_clj/core.clj
-;; Author: Titon Barua <titanix88@gmail.com>
-;; Copyright: 2017 Messrs Concitus, Dhaka, BD. <contact@concitus.com>
+;; Author: Titon Barua <titon@vimmaniac.com>
+;; Copyright: 2021 Titon Barua <titon@vimmaniac.com>
 ;;
 ;; This work is distributed under MIT Public License.
 ;; Please see the attached LICENSE file in project root.

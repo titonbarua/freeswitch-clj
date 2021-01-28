@@ -85,6 +85,6 @@ Check out [tutorial](https://cljdoc.org/d/freeswitch-clj/freeswitch-clj/CURRENT/
 
 ## License
 
-Copyright © 2017 [Messrs Concitus, Dhaka, Bangladesh](mailto:contact@concitus.com)
+Copyright © 2021 [Titon Barua](mailto:titon@vimmaniac.com)
 
 Distributed under the MIT Public License.
