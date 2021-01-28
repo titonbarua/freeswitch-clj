@@ -1,0 +1,8 @@
+<include>
+  <extension name="call_blackhole">
+    <condition field="destination_number" expression="^.*$">
+      <action application="lua" data="call_blackhole.lua"/>
+    </condition>
+  </extension>
+</include>
+
