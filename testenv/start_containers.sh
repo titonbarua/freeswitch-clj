@@ -1,6 +1,5 @@
 #!/bin/sh
 set -x
-set -e
 TESTENV_DIR="$(pwd)/testenv"
 # Start freeswitch host a.
 # ESL HOST: 127.0.0.50, ::50
@@ -39,6 +38,7 @@ docker run \
         --publish 8022:8022 \
         --publish 5080:5080 \
         --rm \
+        --detach \
         --network=host \
         --name freeswitch_clj_test_b \
         safarov/freeswitch
