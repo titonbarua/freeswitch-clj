@@ -265,3 +265,37 @@
             (finally
               ;; Closing previous outbound server.
               (.close @b-outbound-server))))))))
+
+
+(deftest test-connection-sharing-between-threads
+  (testing (format "Testing connection sharing between threads ...")
+    (let [{:keys [fs-a]} (get-freeswitch-esl-connection-configs)
+          conn           (fc/connect :host (:host fs-a)
+                                     :port (:esl-port fs-a)
+                                     :password (:esl-pass fs-a)
+                                     :async-thread-type :thread)
+          n-threads      100
+          n-msgs         100
+          create-msg     (fn [thread-id msg-id]
+                           (str thread-id "-" msg-id))
+          spawn-thread   (fn [thread-id]
+                           (future
+                             [thread-id
+                              (vec (for [msg-id (range n-msgs)]
+                                     (let [msg (create-msg thread-id msg-id) ]
+                                       (:result (fc/req-api conn (str "eval " msg))))))]))
+          futures        (doall (map spawn-thread (range n-threads)))]
+      ;; Wait for 5 seconds for all the messages to be delivered.
+      (Thread/sleep 5000)
+
+      ;; Check if all futures were delivered.
+      (is (= (boolean (every? realized? futures)) true)
+          "Not every thread completed within allocated time.")
+
+      ;; Check if own msgs were received in order in every thread and no thread
+      ;; received msg from other ones.
+      (doseq [f futures]
+        (let [[thread-id received-msgs] (deref f)]
+          (is (= (vec (for [mid (range n-msgs)]
+                        (create-msg thread-id mid)))
+                 received-msgs)))))))

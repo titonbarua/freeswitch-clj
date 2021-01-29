@@ -24,7 +24,8 @@
                                              parse-api-response
                                              parse-bgapi-response
                                              parse-event]])
-  (:import [java.io IOException]))
+  (:import [java.io IOException]
+           [clojure.lang PersistentQueue]))
 
 (log/merge-config! {:level :warn})
 
@@ -130,23 +131,18 @@
    cmd-line
    cmd-hdrs
    cmd-body]
-  (let [{:keys [rslt-chans req-index]} conn]
+  (let [{:keys [resp-chans req-lock]} conn]
     (apply detect-special-events conn cmd-line)
     (log-wc-debug conn
                   (format "Sending request; cmd-line: %s, cmd-hdrs: %s, cmd-body: %s"
                           (pr-str cmd-line)
                           (pr-str cmd-hdrs)
                           (pr-str cmd-body)))
-    (dosync
-     (let [rchan (async/promise-chan)]
-       ;; If we don't record the order of our requests, there is no way to
-       ;; know which resp is for which request. We must infer the association
-       ;; from the order at which responses are received, as freeswitch serves
-       ;; requests on a fifo basis.
-       (swap! rslt-chans assoc @req-index rchan)
-       (send-str conn (encode cmd-line cmd-hdrs cmd-body))
-       (alter req-index inc)
-       rchan))))
+    (locking req-lock
+      (let [rchan (async/promise-chan)]
+        (send-str conn (encode cmd-line cmd-hdrs cmd-body))
+        (swap! resp-chans conj rchan)
+        rchan))))
 
 (defn- init-inbound
   "Do some initiation rites in inbound mode."
@@ -252,11 +248,10 @@
                                   (deliver authenticated? true)))))))
 
 (defn- fulfil-result
-  [{:keys [rslt-chans resp-index] :as conn} result]
-  (dosync
-   (async/put! (@rslt-chans @resp-index) result)
-   (swap! rslt-chans dissoc @resp-index)
-   (alter resp-index inc)))
+  [{:keys [resp-chans] :as conn} result]
+  (let [resp-chan (peek @resp-chans)]
+    (async/put! resp-chan result)
+    (swap! resp-chans pop)))
 
 (defn- enqueue-event
   [{:keys [event-chan] :as conn} event]
@@ -394,9 +389,8 @@
                 :closed? (promise)
                 :aleph-stream strm
                 :rx-buff (atom "")
-                :req-index (ref 0)
-                :resp-index (ref 0)
-                :rslt-chans (atom {})
+                :req-lock (Object.)
+                :resp-chans (atom PersistentQueue/EMPTY)
 
                 :event-handlers (atom {})
                 :event-chan (async/chan)
@@ -488,9 +482,8 @@
                 :closed?      (promise)
                 :aleph-stream strm
                 :rx-buff      (atom "")
-                :req-index    (ref 0)
-                :resp-index   (ref 0)
-                :rslt-chans   (atom {})
+                :req-lock     (Object.)
+                :resp-chans   (atom PersistentQueue/EMPTY)
 
                 :event-handlers         (atom {})
                 :event-chan             (async/chan)
