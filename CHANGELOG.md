@@ -2,13 +2,19 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2021-01-29
+### Changed
+- Fixed a major bug where trying to use network disconnected
+  connections were not raising errors and were hanging instead.
+  Such situations now properly raise `IOException` .
+
 ## [1.0.0] - 2021-01-28
 
 ### Added
 - Added a new parameter - `:pre-init-fn` to `listen` function.
   This can help avoid unpredictability of event handling in
   freeswitch-outbound mode.
-- Added a new parameter - `:async-thread-type` to `listen`.
+- Added a new parameter - `:async-thread-type` to `listen` .
   This parameter determines the type of threads(2 in total) to
   spawn for event dispatch and handling. Valid values are -
   `:thread` and `:go-block`. By default, `:thread` is used.
@@ -67,6 +73,7 @@
 
 Initial commit.
 
+[1.0.1]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.3...v1.0.0
 [0.2.3]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.1...v0.2.2
