@@ -23,7 +23,8 @@
                                              parse-command-reply
                                              parse-api-response
                                              parse-bgapi-response
-                                             parse-event]]))
+                                             parse-event]])
+  (:import [java.io IOException]))
 
 (log/merge-config! {:level :warn})
 
@@ -66,7 +67,7 @@
   [{:keys [closed? aleph-stream] :as conn} data]
   (if-not (realized? closed?)
     (stream/put! aleph-stream data)
-    (throw (Exception. "Can't send data to through closed connection."))))
+    (throw (IOException. "Can't send data to through closed connection."))))
 
 (defn- norm-token
   "Normalize a token, by trimming and upper-casing it."
@@ -321,10 +322,10 @@
   Normally, you should use [[disconnect]] function to
   gracefully disconnect, which sends protocol epilogue."
   [{:keys [aleph-stream event-chan closed?] :as conn}]
-  (if-not (realized? closed?)
-    (do (stream/close! aleph-stream)
-        (async/close! event-chan)
-        (deliver closed? true))))
+  (when-not (realized? closed?)
+    (stream/close! aleph-stream)
+    (async/close! event-chan)
+    (deliver closed? true)))
 
 (defn- handle-disconnect-notice
   [{:keys [connected? aleph-stream] :as conn} msg]
@@ -401,6 +402,10 @@
                 :event-chan (async/chan)
                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
       (log-wc-debug conn "Connected.")
+
+      ;; Setup callbacks to handle connection interruption.
+      (stream/on-closed strm #(close conn))
+      (stream/on-drained strm #(close conn))
 
       ;; Bind a consumer for incoming data bytes.
       (stream/consume (create-aleph-data-consumer conn) strm)
@@ -491,10 +496,15 @@
                 :event-chan             (async/chan)
                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
       (log-wc-debug conn "Connected.")
-      (spawn-event-dispatcher async-thread-type conn)
+
+      ;; Setup callbacks to handle connection interruption.
+      (stream/on-closed strm #(close conn))
+      (stream/on-drained strm #(close conn))
 
       ;; Hook-up incoming data handler.
       (stream/consume (create-aleph-data-consumer conn) strm)
+
+      (spawn-event-dispatcher async-thread-type conn)
 
       ;; Block until authentication step is complete.
       (if @(conn :authenticated?)
