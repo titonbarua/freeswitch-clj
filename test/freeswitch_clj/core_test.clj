@@ -2,10 +2,11 @@
   (:require [clojure.test :refer :all]
             [taoensso.timbre :as log]
             [manifold.stream :as stream]
-            [freeswitch-clj.core :as fc])
+            [freeswitch-clj.core :as fc]
+            [clojure.string :as str])
   (:import [java.io IOException]))
 
-(log/merge-config! {:level :info})
+(log/merge-config! {:level :warn})
 
 (defn get-freeswitch-esl-connection-configs
   []
@@ -224,7 +225,7 @@
 
 
 (deftest test-fs-outbound-connection-disruption
-  (testing (format "Testing graceful handling of fs-outbound connection disruption ...")
+  (testing "Testing graceful handling of fs-outbound connection disruption ..."
     (let [{:keys [fs-a fs-b esl-outbound-port]} (get-freeswitch-esl-connection-configs)]
       (testing "Testing if outbound mode works ..."
         (let [received-exception (promise)
@@ -268,7 +269,7 @@
 
 
 (deftest test-connection-sharing-between-threads
-  (testing (format "Testing connection sharing between threads ...")
+  (testing "Testing connection sharing between threads ..."
     (let [{:keys [fs-a]} (get-freeswitch-esl-connection-configs)
           conn           (fc/connect :host (:host fs-a)
                                      :port (:esl-port fs-a)
@@ -299,3 +300,17 @@
           (is (= (vec (for [mid (range n-msgs)]
                         (create-msg thread-id mid)))
                  received-msgs)))))))
+
+
+(deftest test-connection-hammering
+  (testing "Testing connection hammering ..."
+    ;; This test can fail if responses are not received in order.
+    (let [{:keys [fs-a]} (get-freeswitch-esl-connection-configs)
+          conn           (fc/connect :host (:host fs-a)
+                                     :port (:esl-port fs-a)
+                                     :password (:esl-pass fs-a)
+                                     :async-thread-type :thread)
+          n-msgs         10000]
+      (doseq [i (range n-msgs)]
+        (let [resp (fc/req-api conn (str "eval " i))]
+          (is (= (str i) (str/trim (:result resp)))))))))

@@ -29,6 +29,7 @@
 
 (log/merge-config! {:level :warn})
 
+
 (declare connect)
 
 (def
@@ -62,13 +63,6 @@
   "Log an info level message with connection context."
   [conn msg & args]
   (apply log-with-conn conn :info msg args))
-
-(defn- send-str
-  "Send some string data to freeswitch."
-  [{:keys [closed? aleph-stream] :as conn} data]
-  (if-not (realized? closed?)
-    (stream/put! aleph-stream data)
-    (throw (IOException. "Can't send data to through closed connection."))))
 
 (defn- norm-token
   "Normalize a token, by trimming and upper-casing it."
@@ -112,6 +106,18 @@
 
         :default nil))))
 
+(defn- create-outgoing-stream
+  "Returns a new stream which take a vector of form `[data resp-chan]`,
+  puts the `resp-chan` into back of `resp-chans-queue-atom` and forwards
+  the data to `aleph-stream`."
+  [resp-chans-queue-atom aleph-stream]
+  (let [new-stream (stream/stream 0
+                                  (map (fn [[data resp-chan]]
+                                         (swap! resp-chans-queue-atom conj resp-chan)
+                                         data)))]
+    (stream/connect new-stream aleph-stream)
+    new-stream))
+
 (defn req
   "Make a request to freeswitch.
 
@@ -131,18 +137,20 @@
    cmd-line
    cmd-hdrs
    cmd-body]
-  (let [{:keys [resp-chans req-lock]} conn]
+  (let [{:keys [closed?
+                outgoing-stream]} conn]
     (apply detect-special-events conn cmd-line)
     (log-wc-debug conn
                   (format "Sending request; cmd-line: %s, cmd-hdrs: %s, cmd-body: %s"
                           (pr-str cmd-line)
                           (pr-str cmd-hdrs)
                           (pr-str cmd-body)))
-    (locking req-lock
-      (let [rchan (async/promise-chan)]
-        (send-str conn (encode cmd-line cmd-hdrs cmd-body))
-        (swap! resp-chans conj rchan)
-        rchan))))
+    (let [resp-chan (async/promise-chan)
+          data      [(encode cmd-line cmd-hdrs cmd-body) resp-chan]]
+      (if-not (realized? closed?)
+        @(stream/put! outgoing-stream data)
+        (throw (IOException. "Can't send data to through closed connection.")))
+      resp-chan)))
 
 (defn- init-inbound
   "Do some initiation rites in inbound mode."
@@ -248,10 +256,10 @@
                                   (deliver authenticated? true)))))))
 
 (defn- fulfil-result
-  [{:keys [resp-chans] :as conn} result]
-  (let [resp-chan (peek @resp-chans)]
+  [{:keys [resp-chans-queue-atom] :as conn} result]
+  (let [resp-chan (peek @resp-chans-queue-atom)]
     (async/put! resp-chan result)
-    (swap! resp-chans pop)))
+    (swap! resp-chans-queue-atom pop)))
 
 (defn- enqueue-event
   [{:keys [event-chan] :as conn} event]
@@ -329,7 +337,7 @@
 
 (defn- create-aleph-data-consumer
   "Create a data consumer to process incoming data in an aleph stream."
-  [{:keys [rx-buff aleph-stream] :as conn}]
+  [{:keys [rx-buff] :as conn}]
   (fn [^bytes data-bytes]
     (if (nil? data-bytes)
       ;; Handle disconnection.
@@ -383,18 +391,19 @@
   "Create an incoming connection handler to use with aleph/start-server."
   [handler custom-init-fn pre-init-fn async-thread-type]
   (fn [strm info]
-    (let [conn {:aleph-conn-info info
-                :mode :fs-outbound
+    (let [resp-chans-queue-atom (atom PersistentQueue/EMPTY)
+          conn                  {:aleph-conn-info info
+                                 :mode            :fs-outbound
 
-                :closed? (promise)
-                :aleph-stream strm
-                :rx-buff (atom "")
-                :req-lock (Object.)
-                :resp-chans (atom PersistentQueue/EMPTY)
+                                 :closed?               (promise)
+                                 :aleph-stream          strm
+                                 :rx-buff               (atom "")
+                                 :resp-chans-queue-atom resp-chans-queue-atom
+                                 :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
 
-                :event-handlers (atom {})
-                :event-chan (async/chan)
-                :enabled-special-events (atom (zipmap special-events (repeat false)))}]
+                                 :event-handlers         (atom {})
+                                 :event-chan             (async/chan)
+                                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
       (log-wc-debug conn "Connected.")
 
       ;; Setup callbacks to handle connection interruption.
@@ -470,43 +479,44 @@
              conn-timeout      10
              async-thread-type :thread}
       :as   kwargs}]
-  (let [strm @(-> (tcp/client (dissoc kwargs :password :conn-timeout :async-thread-type))
-                  (deferred/timeout! (int (* conn-timeout 1000))))]
-    (let [conn {:host           host
-                :port           port
-                :password       password
-                :conn-timeout   conn-timeout
-                :authenticated? (promise)
-                :mode           :fs-inbound
+  (let [strm                  @(-> (tcp/client (dissoc kwargs :password :conn-timeout :async-thread-type))
+                                   (deferred/timeout! (int (* conn-timeout 1000))))
+        resp-chans-queue-atom (atom PersistentQueue/EMPTY)
+        conn                  {:host           host
+                               :port           port
+                               :password       password
+                               :conn-timeout   conn-timeout
+                               :authenticated? (promise)
+                               :mode           :fs-inbound
 
-                :closed?      (promise)
-                :aleph-stream strm
-                :rx-buff      (atom "")
-                :req-lock     (Object.)
-                :resp-chans   (atom PersistentQueue/EMPTY)
+                               :closed?               (promise)
+                               :aleph-stream          strm
+                               :rx-buff               (atom "")
+                               :resp-chans-queue-atom resp-chans-queue-atom
+                               :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
 
-                :event-handlers         (atom {})
-                :event-chan             (async/chan)
-                :enabled-special-events (atom (zipmap special-events (repeat false)))}]
-      (log-wc-debug conn "Connected.")
+                               :event-handlers         (atom {})
+                               :event-chan             (async/chan)
+                               :enabled-special-events (atom (zipmap special-events (repeat false)))}]
+    (log-wc-debug conn "Connected.")
 
-      ;; Setup callbacks to handle connection interruption.
-      (stream/on-closed strm #(close conn))
-      (stream/on-drained strm #(close conn))
+    ;; Setup callbacks to handle connection interruption.
+    (stream/on-closed strm #(close conn))
+    (stream/on-drained strm #(close conn))
 
-      ;; Hook-up incoming data handler.
-      (stream/consume (create-aleph-data-consumer conn) strm)
+    ;; Hook-up incoming data handler.
+    (stream/consume (create-aleph-data-consumer conn) strm)
 
-      (spawn-event-dispatcher async-thread-type conn)
+    (spawn-event-dispatcher async-thread-type conn)
 
-      ;; Block until authentication step is complete.
-      (if @(conn :authenticated?)
-        (do (init-inbound conn)
-            conn)
-        (do (close conn)
-            (throw (ex-info "Failed to authenticate."
-                            {:host (conn :host)
-                             :port (conn :port)})))))))
+    ;; Block until authentication step is complete.
+    (if @(conn :authenticated?)
+      (do (init-inbound conn)
+          conn)
+      (do (close conn)
+          (throw (ex-info "Failed to authenticate."
+                          {:host (conn :host)
+                           :port (conn :port)}))))))
 
 (defn listen
   "Listen for outbound connections from freeswitch.
