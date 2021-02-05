@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.0.3] - 2021-02-05
+### Changed
+- Fixed a concurrency related bug where pushing large amount of
+  messages through same connection can make the responses be
+  processed out of order and crash freeswitch-clj.
+
 ## [1.0.2] - 2021-01-29
 ### Changed
 - Fixed a major concurrent access bug. Connections can now
@@ -78,6 +84,7 @@
 
 Initial commit.
 
+[1.0.3]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/titonbarua/freeswitch-clj/compare/v0.2.3...v1.0.0
