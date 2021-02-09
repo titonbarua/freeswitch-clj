@@ -330,7 +330,7 @@
     (async/close! event-chan)
     (when on-close-fn
       (try
-        (on-close-fn)
+        (on-close-fn conn)
         (catch Exception e
           (log/warn e "Ignored exception in on-close function."))))
     (deliver closed? true)))
@@ -468,8 +468,8 @@
   * `async-thread-type` - (optional) The type of thread to spawn for event
                           dispatcher. Valid values are - `thread` and `go-block`.
                           Default is - `thread`.
-  * `on-close` - (optional) A zero-arity function which will be called when
-                 connection closes.
+  * `on-close` - (optional) A single-arity function which will be called after
+                 the connection closes. Call signature is: `(fn [fscon])` .
 
   You can add extra keyword arguments to fine tune behavior of `aleph.tcp/client`
   function.
@@ -555,8 +555,9 @@
   * `:async-thread-type` - (Optional) A keyword indicating types of threads to spawn
                            for event handling and dispatch. Valid values are -
                            `:thread` and `:go-block`. Default is `:thread`.
-  * `on-close` - (optional) A zero-arity function which will be called when
-                 connection closes.
+  * `on-close` - (optional) A single-arity function which will be called after
+                 the connection closes. Call signature is: `(fn [fscon])` .
+
 
   __Returns:__
 

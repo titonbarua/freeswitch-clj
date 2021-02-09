@@ -324,7 +324,7 @@
                                        :port (:esl-port fs-a)
                                        :password (:esl-pass fs-a)
                                        :async-thread-type :thread
-                                       :on-close (fn []
+                                       :on-close (fn [fscon]
                                                    (reset! on-close-called? true)))]
 
       ;; Close the connection.
@@ -345,8 +345,7 @@
               conn-a            (fc/connect :host (:host fs-a)
                                             :port (:esl-port fs-a)
                                             :password (:esl-pass fs-a)
-                                            :async-thread-type :thread
-                                            )]
+                                            :async-thread-type :thread)]
           (try
             (deliver b-outbound-server
                      (fc/listen :host "127.0.0.1"
@@ -355,7 +354,7 @@
                                            ;; Deliberately close the connection from
                                            ;; low level to simulate disruption.
                                            (stream/close! (:aleph-stream conn-b)))
-                                :on-close (fn []
+                                :on-close (fn [fscon]
                                             (deliver on-close-called? true))))
 
             (let [originate-cmd (format "originate {ignore_early_media=false}sofia/external/%s@%s:%s &socket('127.0.0.1:%s') async full"
