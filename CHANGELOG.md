@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
-## [1.0.4] - 2021-02-09
+## [1.1.1] - 2021-02-09
+### Changed
+- `on-close` function has been changed to take a single argument -
+   the freeswitch connection. Without that, distinguishing connections
+   in freeswith-outbound mode becomes impossible.
+
+## [1.1.0] - 2021-02-09
 ### Added
 - Added a new optional parameter - `on-close` to both `listen` and
   `connect` functions. If given, this zero arity function will be
@@ -92,6 +98,8 @@
 
 Initial commit.
 
+[1.1.1]: https://github.com/titonbarua/freeswitch-clj/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.0...v1.0.1

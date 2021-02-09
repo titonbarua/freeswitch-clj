@@ -83,6 +83,12 @@ Full API documentation is available at [cljdoc.org](https://cljdoc.org/d/freeswi
 
 Check out [tutorial](https://cljdoc.org/d/freeswitch-clj/freeswitch-clj/CURRENT/doc/tutorial) for more usage examples.
 
+## Testing
+
+You can run the tests with `run_tests.sh` shell script.
+This will spin up two docker containers containing freeswitch
+and check freeswitch-clj under different scenarios.
+
 ## License
 
 Copyright © 2021 [Titon Barua](mailto:titon@vimmaniac.com)
