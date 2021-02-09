@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.0.4] - 2021-02-09
+### Added
+- Added a new optional parameter - `on-close` to both `listen` and
+  `connect` functions. If given, this zero arity function will be
+  called after connection to freeswitch is closed, just before
+  `:closed?` promise is delivered. This can be useful in event driven
+  designs.
+
 ## [1.0.3] - 2021-02-05
 ### Changed
 - Fixed a concurrency related bug where pushing large amount of
