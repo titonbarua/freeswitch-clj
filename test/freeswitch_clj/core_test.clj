@@ -314,3 +314,61 @@
       (doseq [i (range n-msgs)]
         (let [resp (fc/req-api conn (str "eval " i))]
           (is (= (str i) (str/trim (:result resp)))))))))
+
+
+(deftest test-on-close-fn-triggering-in-inbound-mode
+  (testing "Testing if on-close function works in freeswitch-inbound mode ..."
+    (let [{:keys [fs-a]}   (get-freeswitch-esl-connection-configs)
+          on-close-called? (atom false)
+          conn             (fc/connect :host (:host fs-a)
+                                       :port (:esl-port fs-a)
+                                       :password (:esl-pass fs-a)
+                                       :async-thread-type :thread
+                                       :on-close (fn []
+                                                   (reset! on-close-called? true)))]
+
+      ;; Close the connection.
+      (fc/close conn)
+
+      ;; Wait for connection to close.
+      (deref (:closed? conn) 5000 :timed-out)
+
+      (is (= @on-close-called? true)))))
+
+
+(deftest test-fs-close-fn-triggering-in-outbound-mode
+  (testing "Testing if on-close function works in freeswitch-inbound mode ..."
+    (let [{:keys [fs-a fs-b esl-outbound-port]} (get-freeswitch-esl-connection-configs)]
+      (testing "Testing if outbound mode works ..."
+        (let [b-outbound-server (promise)
+              on-close-called?  (promise)
+              conn-a            (fc/connect :host (:host fs-a)
+                                            :port (:esl-port fs-a)
+                                            :password (:esl-pass fs-a)
+                                            :async-thread-type :thread
+                                            )]
+          (try
+            (deliver b-outbound-server
+                     (fc/listen :host "127.0.0.1"
+                                :port esl-outbound-port
+                                :handler (fn [conn-b chan-info]
+                                           ;; Deliberately close the connection from
+                                           ;; low level to simulate disruption.
+                                           (stream/close! (:aleph-stream conn-b)))
+                                :on-close (fn []
+                                            (deliver on-close-called? true))))
+
+            (let [originate-cmd (format "originate {ignore_early_media=false}sofia/external/%s@%s:%s &socket('127.0.0.1:%s') async full"
+                                        (:sip-user fs-b)
+                                        (:host fs-b)
+                                        (:sip-port fs-b)
+                                        esl-outbound-port)]
+              (is (= (select-keys (fc/req-api conn-a originate-cmd) [:ok])
+                     {:ok true}))
+
+
+              (is (= (deref on-close-called? 10000 :timed-out) true)))
+
+            (finally
+              ;; Closing previous outbound server.
+              (.close @b-outbound-server))))))))

@@ -324,10 +324,15 @@
 
   Normally, you should use [[disconnect]] function to
   gracefully disconnect, which sends protocol epilogue."
-  [{:keys [aleph-stream event-chan closed?] :as conn}]
+  [{:keys [aleph-stream event-chan closed? on-close-fn] :as conn}]
   (when-not (realized? closed?)
     (stream/close! aleph-stream)
     (async/close! event-chan)
+    (when on-close-fn
+      (try
+        (on-close-fn)
+        (catch Exception e
+          (log/warn e "Ignored exception in on-close function."))))
     (deliver closed? true)))
 
 (defn- handle-disconnect-notice
@@ -389,21 +394,23 @@
 
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."
-  [handler custom-init-fn pre-init-fn async-thread-type]
+  [handler custom-init-fn pre-init-fn async-thread-type on-close]
   (fn [strm info]
     (let [resp-chans-queue-atom (atom PersistentQueue/EMPTY)
-          conn                  {:aleph-conn-info info
-                                 :mode            :fs-outbound
+          conn                  (cond-> {:aleph-conn-info info
+                                         :mode            :fs-outbound
 
-                                 :closed?               (promise)
-                                 :aleph-stream          strm
-                                 :rx-buff               (atom "")
-                                 :resp-chans-queue-atom resp-chans-queue-atom
-                                 :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
+                                         :closed?               (promise)
+                                         :aleph-stream          strm
+                                         :rx-buff               (atom "")
+                                         :resp-chans-queue-atom resp-chans-queue-atom
+                                         :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
 
-                                 :event-handlers         (atom {})
-                                 :event-chan             (async/chan)
-                                 :enabled-special-events (atom (zipmap special-events (repeat false)))}]
+                                         :event-handlers         (atom {})
+                                         :event-chan             (async/chan)
+                                         :enabled-special-events (atom (zipmap special-events (repeat false)))}
+                                  on-close
+                                  (assoc :on-close-fn on-close))]
       (log-wc-debug conn "Connected.")
 
       ;; Setup callbacks to handle connection interruption.
@@ -461,6 +468,8 @@
   * `async-thread-type` - (optional) The type of thread to spawn for event
                           dispatcher. Valid values are - `thread` and `go-block`.
                           Default is - `thread`.
+  * `on-close` - (optional) A zero-arity function which will be called when
+                 connection closes.
 
   You can add extra keyword arguments to fine tune behavior of `aleph.tcp/client`
   function.
@@ -472,32 +481,38 @@
   __Note:__
 
   Blocks until authentication step is complete."
-  [& {:keys [host port password conn-timeout async-thread-type]
+  [& {:keys [host port password conn-timeout async-thread-type on-close]
       :or   {host              "127.0.0.1"
              port              8021
              password          "ClueCon"
              conn-timeout      10
              async-thread-type :thread}
       :as   kwargs}]
-  (let [strm                  @(-> (tcp/client (dissoc kwargs :password :conn-timeout :async-thread-type))
+  (let [strm                  @(-> (tcp/client (dissoc kwargs
+                                                       :password
+                                                       :conn-timeout
+                                                       :async-thread-type
+                                                       :on-close))
                                    (deferred/timeout! (int (* conn-timeout 1000))))
         resp-chans-queue-atom (atom PersistentQueue/EMPTY)
-        conn                  {:host           host
-                               :port           port
-                               :password       password
-                               :conn-timeout   conn-timeout
-                               :authenticated? (promise)
-                               :mode           :fs-inbound
+        conn                  (cond-> {:host           host
+                                       :port           port
+                                       :password       password
+                                       :conn-timeout   conn-timeout
+                                       :authenticated? (promise)
+                                       :mode           :fs-inbound
 
-                               :closed?               (promise)
-                               :aleph-stream          strm
-                               :rx-buff               (atom "")
-                               :resp-chans-queue-atom resp-chans-queue-atom
-                               :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
+                                       :closed?               (promise)
+                                       :aleph-stream          strm
+                                       :rx-buff               (atom "")
+                                       :resp-chans-queue-atom resp-chans-queue-atom
+                                       :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
 
-                               :event-handlers         (atom {})
-                               :event-chan             (async/chan)
-                               :enabled-special-events (atom (zipmap special-events (repeat false)))}]
+                                       :event-handlers         (atom {})
+                                       :event-chan             (async/chan)
+                                       :enabled-special-events (atom (zipmap special-events (repeat false)))}
+                                on-close
+                                (assoc :on-close-fn on-close))]
     (log-wc-debug conn "Connected.")
 
     ;; Setup callbacks to handle connection interruption.
@@ -540,6 +555,8 @@
   * `:async-thread-type` - (Optional) A keyword indicating types of threads to spawn
                            for event handling and dispatch. Valid values are -
                            `:thread` and `:go-block`. Default is `:thread`.
+  * `on-close` - (optional) A zero-arity function which will be called when
+                 connection closes.
 
   __Returns:__
 
@@ -557,7 +574,8 @@
              handler
              custom-init-fn
              pre-init-fn
-             async-thread-type]
+             async-thread-type
+             on-close]
       :or   {custom-init-fn    nil
              pre-init-fn       nil
              async-thread-type :thread}
@@ -565,7 +583,11 @@
   {:pre [(integer? port)
          (fn? handler)]}
   (log/info "Listening for freeswitch at port: " port)
-  (tcp/start-server (create-aleph-conn-handler handler custom-init-fn pre-init-fn async-thread-type)
+  (tcp/start-server (create-aleph-conn-handler handler
+                                               custom-init-fn
+                                               pre-init-fn
+                                               async-thread-type
+                                               on-close)
                     {:port port}))
 
 (defn disconnect
