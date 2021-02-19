@@ -337,8 +337,7 @@
 
 (defn- handle-disconnect-notice
   [{:keys [connected? aleph-stream] :as conn} msg]
-  (log-wc-debug conn "Received disconnect-notice.")
-  (close conn))
+  (log-wc-debug conn "Received disconnect-notice."))
 
 (defn- create-aleph-data-consumer
   "Create a data consumer to process incoming data in an aleph stream."
