@@ -326,8 +326,11 @@
   gracefully disconnect, which sends protocol epilogue."
   [{:keys [aleph-stream event-chan closed? on-close-fn] :as conn}]
   (when-not (realized? closed?)
-    (stream/close! aleph-stream)
-    (async/close! event-chan)
+    (stream/close! aleph-stream)))
+
+(defn ack-closure
+  [{:keys [on-close-fn event-chan closed?] :as conn}]
+  (when-not (realized? closed?)
     (when on-close-fn
       (try
         (on-close-fn conn)
@@ -335,18 +338,23 @@
           (log/warn e "Ignored exception in on-close function."))))
     (deliver closed? true)))
 
+(defn ack-drainage
+  [{:keys [event-chan rx-buff] :as conn}]
+  ;; As there is no more data to receive, we should close the event channel.
+  (async/close! event-chan))
+
 (defn- handle-disconnect-notice
   [{:keys [connected? aleph-stream] :as conn} msg]
   (log-wc-debug conn "Received disconnect-notice."))
 
 (defn- create-aleph-data-consumer
   "Create a data consumer to process incoming data in an aleph stream."
-  [{:keys [rx-buff] :as conn}]
+  [{:keys [rx-buff event-chan] :as conn}]
   (fn [^bytes data-bytes]
     (if (nil? data-bytes)
       ;; Handle disconnection.
-      (do (log-wc-debug conn "Disconnected.")
-          (close conn))
+      (do
+        (log-wc-debug conn "Disconnected."))
 
       ;; Handle incoming data.
       (let [data (String. data-bytes)
@@ -393,9 +401,10 @@
 
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."
-  [handler custom-init-fn pre-init-fn async-thread-type on-close]
+  [handler custom-init-fn pre-init-fn async-thread-type on-close incoming-buffer-size]
   (fn [strm info]
     (let [resp-chans-queue-atom (atom PersistentQueue/EMPTY)
+          buffered-strm         (stream/buffer incoming-buffer-size strm)
           conn                  (cond-> {:aleph-conn-info info
                                          :mode            :fs-outbound
 
@@ -413,11 +422,11 @@
       (log-wc-debug conn "Connected.")
 
       ;; Setup callbacks to handle connection interruption.
-      (stream/on-closed strm #(close conn))
-      (stream/on-drained strm #(close conn))
+      (stream/on-closed strm #(ack-closure conn))
+      (stream/on-drained strm #(ack-drainage conn))
 
       ;; Bind a consumer for incoming data bytes.
-      (stream/consume (create-aleph-data-consumer conn) strm)
+      (stream/consume (create-aleph-data-consumer conn) buffered-strm)
 
       (if (= async-thread-type :go-block)
         ;; Run handler in a go-block.
@@ -469,6 +478,9 @@
                           Default is - `thread`.
   * `on-close` - (optional) A single-arity function which will be called after
                  the connection closes. Call signature is: `(fn [fscon])` .
+  * `incoming-buffer-size` - (optional) Number of messages to buffer on the
+                             receive side before applying back-pressure.
+                             Defaults to 32.
 
   You can add extra keyword arguments to fine tune behavior of `aleph.tcp/client`
   function.
@@ -480,20 +492,29 @@
   __Note:__
 
   Blocks until authentication step is complete."
-  [& {:keys [host port password conn-timeout async-thread-type on-close]
-      :or   {host              "127.0.0.1"
-             port              8021
-             password          "ClueCon"
-             conn-timeout      10
-             async-thread-type :thread}
+  [& {:keys [host
+             port
+             password
+             conn-timeout
+             async-thread-type
+             on-close
+             incoming-buffer-size]
+      :or   {host                 "127.0.0.1"
+             port                 8021
+             password             "ClueCon"
+             conn-timeout         10
+             async-thread-type    :thread
+             incoming-buffer-size 32}
       :as   kwargs}]
   (let [strm                  @(-> (tcp/client (dissoc kwargs
                                                        :password
                                                        :conn-timeout
                                                        :async-thread-type
-                                                       :on-close))
+                                                       :on-close
+                                                       :incoming-buffer-size))
                                    (deferred/timeout! (int (* conn-timeout 1000))))
         resp-chans-queue-atom (atom PersistentQueue/EMPTY)
+        buffered-strm         (stream/buffer incoming-buffer-size strm)
         conn                  (cond-> {:host           host
                                        :port           port
                                        :password       password
@@ -515,11 +536,11 @@
     (log-wc-debug conn "Connected.")
 
     ;; Setup callbacks to handle connection interruption.
-    (stream/on-closed strm #(close conn))
-    (stream/on-drained strm #(close conn))
+    (stream/on-closed strm #(ack-closure conn))
+    (stream/on-drained strm #(ack-drainage conn))
 
     ;; Hook-up incoming data handler.
-    (stream/consume (create-aleph-data-consumer conn) strm)
+    (stream/consume (create-aleph-data-consumer conn) buffered-strm)
 
     (spawn-event-dispatcher async-thread-type conn)
 
@@ -556,6 +577,9 @@
                            `:thread` and `:go-block`. Default is `:thread`.
   * `on-close` - (optional) A single-arity function which will be called after
                  the connection closes. Call signature is: `(fn [fscon])` .
+  * `incoming-buffer-size` - (optional) Number of messages to buffer on the
+                             receive side before applying back-pressure.
+                             Defaults to 32.
 
 
   __Returns:__
@@ -575,10 +599,12 @@
              custom-init-fn
              pre-init-fn
              async-thread-type
-             on-close]
-      :or   {custom-init-fn    nil
-             pre-init-fn       nil
-             async-thread-type :thread}
+             on-close
+             incoming-buffer-size]
+      :or   {custom-init-fn       nil
+             pre-init-fn          nil
+             async-thread-type    :thread
+             incoming-buffer-size 32}
       :as   kwargs}]
   {:pre [(integer? port)
          (fn? handler)]}
@@ -587,7 +613,8 @@
                                                custom-init-fn
                                                pre-init-fn
                                                async-thread-type
-                                               on-close)
+                                               on-close
+                                               incoming-buffer-size)
                     {:port port}))
 
 (defn disconnect

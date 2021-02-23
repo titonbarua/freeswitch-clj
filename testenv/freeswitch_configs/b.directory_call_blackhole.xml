@@ -1,8 +1,0 @@
-<include>
-  <user id="callblackholeuser">
-    <params>
-      <param name="password" value="callblackholepass"/> <!--SIP password-->
-    </params>
-  </user>
-</include>
-

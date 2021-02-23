@@ -1,0 +1,8 @@
+<include>
+  <extension name="freeswitch_clj_test">
+    <condition field="destination_number" expression="^.*$">
+      <action application="lua" data="freeswitch_clj_test.lua"/>
+    </condition>
+  </extension>
+</include>
+

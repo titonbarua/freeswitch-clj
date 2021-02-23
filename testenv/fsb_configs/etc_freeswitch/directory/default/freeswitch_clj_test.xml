@@ -1,0 +1,8 @@
+<include>
+  <user id="freeswitch_clj_test_user">
+    <params>
+      <param name="password" value="freeswitch_clj_test_pass"/> <!--SIP password-->
+    </params>
+  </user>
+</include>
+

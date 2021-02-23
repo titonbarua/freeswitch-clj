@@ -1,0 +1,67 @@
+services:
+  fsa:
+    # image: titon/freeswitch-1.10.5:latest
+    image: safarov/freeswitch@sha256:a07034201875731ed65670acfe97f2d5c83411a889931cb49c2d788643073010
+    volumes:
+      - type: bind
+        source: ./testenv/fsa_configs/etc_freeswitch
+        target: /etc/freeswitch
+        # read_only: true
+      - type: bind
+        source: ./testenv/fsa_configs/usr_share_freeswitch_sounds_en_us_callie/
+        target: /usr/share/freeswitch/sounds/en/us/callie/
+        read_only: true
+    ports:
+      - 8021
+    networks:
+      testnet:
+
+  fsb:
+    # image: titon/freeswitch-1.10.5:latest
+    image: safarov/freeswitch@sha256:a07034201875731ed65670acfe97f2d5c83411a889931cb49c2d788643073010
+    ports:
+      - 5080
+    volumes:
+      - type: bind
+        source: ./testenv/fsb_configs/etc_freeswitch
+        target: /etc/freeswitch
+        # read_only: true
+      - type: bind
+        source: ./testenv/fsb_configs/usr_share_freeswitch_scripts
+        target: /usr/share/freeswitch/scripts
+        read_only: true
+      - type: bind
+        source: ./testenv/fsb_configs/usr_share_freeswitch_sounds_en_us_callie/
+        target: /usr/share/freeswitch/sounds/en/us/callie/
+        read_only: true
+    networks:
+      testnet:
+
+  fsclj:
+    build: .
+    ports:
+      - 4321
+    depends_on:
+      - fsa
+      - fsb
+    networks:
+      - testnet
+    volumes:
+      - type: bind
+        source: .
+        target: /usr/src/app
+    environment:
+      - FSA_HOST=fsa
+      - FSA_ESL_INBOUND_PORT=8021
+      - FSA_ESL_INBOUND_PASS=ClueCon
+      - FSB_HOST=fsb
+      - FSB_SIP_PORT=5080
+      - FSB_SIP_USER=freeswitch-clj-test-user
+      - FSB_SIP_PASS=freeswitch-clj-test-pass
+      - FSCLJ_ESL_OUTBOUND_HOST=fsclj
+      - FSCLJ_ESL_OUTBOUND_PORT=4321
+    command: ["lein", "test"] 
+    # command: ["lein", "test", ":only", "freeswitch-clj.core-test/test-disconnect-behavior-in-outbound-mode-with-caller-hangup"]
+
+networks:
+  testnet:

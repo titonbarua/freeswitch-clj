@@ -1,5 +1,6 @@
 (ns freeswitch-clj.core-test
   (:require [clojure.test :refer :all]
+            [clojure.core.async :as async]
             [taoensso.timbre :as log]
             [manifold.stream :as stream]
             [freeswitch-clj.core :as fc]
@@ -8,31 +9,35 @@
 
 (log/merge-config! {:level :warn})
 
-(defn get-freeswitch-esl-connection-configs
+(defn get-freeswitch-connection-configs
   []
   (let [env               (System/getenv)
-        fs-a              {:host     (get env "FS_A_HOST" "127.0.0.1")
-                           :esl-port (Integer/parseInt (get env "FS_A_PORT" "8021"))
-                           :esl-pass (get env "FS_A_PASS" "ClueCon")}
-        fs-b              {:host     (get env "FS_B_HOST" "127.0.0.1")
-                           :esl-port (Integer/parseInt (get env "FS_B_PORT" "8022"))
-                           :esl-pass (get env "FS_B_PASS" "ClueCon")
-                           :sip-port (Integer/parseInt (get env "FS_B_SIP_PORT" "5080"))
-                           :sip-user (get env "FS_B_SIP_USER" "callblackholeuser")
-                           :sip-pass (get env "FS_B_SIP_PASS" "callblackholepass")}
-        esl-outbound-port (Integer/parseInt (get env "ESL_OUTBOUND_PORT" "4321"))]
-    {:fs-a              fs-a
-     :fs-b              fs-b
-     :esl-outbound-port esl-outbound-port})) 
+        fsa               {:host     (get env "FSA_HOST")
+                           :esl-port (->> (get env "FSA_ESL_INBOUND_PORT")
+                                          (Integer/parseInt))
+                           :esl-pass (get env "FSA_ESL_INBOUND_PASS")}
+        fsb               {:host     (get env "FSB_HOST")
+                           :sip-port (->> (get env "FSB_SIP_PORT")
+                                          (Integer/parseInt))
+                           :sip-user (get env "FSB_SIP_USER")
+                           :sip-pass (get env "FSB_SIP_PASS")}
+        esl-outbound-host (get env "FSCLJ_ESL_OUTBOUND_HOST")
+        esl-outbound-port (->> (get env "FSCLJ_ESL_OUTBOUND_PORT")
+                               (Integer/parseInt))]
+    {:fsa               fsa
+     :fsb               fsb
+     :esl-outbound-host esl-outbound-host
+     :esl-outbound-port esl-outbound-port}))
+
 
 (deftest test-fs-inbound-session
-  (let [{:keys [fs-a]} (get-freeswitch-esl-connection-configs)]
+  (let [{:keys [fsa]} (get-freeswitch-connection-configs)]
     (doseq [thread-type [:thread :go-block]]
       (testing (format "Creating inbound connection to freeswitch host A with thread type %s ..."
                        thread-type)
-        (let [conn (fc/connect :host (:host fs-a)
-                               :port (:esl-port fs-a)
-                               :password (:esl-pass fs-a)
+        (let [conn (fc/connect :host (:host fsa)
+                               :port (:esl-port fsa)
+                               :password (:esl-pass fsa)
                                :async-thread-type thread-type)]
           (try
             (testing "Sending 'status' api command ..."
@@ -54,7 +59,7 @@
                 (is (= (deref beacon 1000 false)
                        true))))
 
-            (testing "Trying event capture with generalized handller ..."
+            (testing "Trying event capture with generalized handler ..."
               ;; Catch background_job with a generalized handler.
               (let [beacon (promise)]
                 ;; Reset event handlers.
@@ -113,34 +118,40 @@
 
 
 (deftest test-fs-outbound-session
-  (let [{:keys [fs-a fs-b esl-outbound-port]} (get-freeswitch-esl-connection-configs)]
+  (let [{:keys [fsa
+                fsb
+                esl-outbound-host
+                esl-outbound-port]} (get-freeswitch-connection-configs)]
     (doseq [thread-type [:thread :go-block]]
       (testing (format "Testing outbound connection mode with thread type %s ..."
                        thread-type)
         (testing "Testing if outbound mode works ..."
           (let [connected-with-b? (promise)
-                b-outbound-server (promise)
-                conn-a            (fc/connect :host (:host fs-a)
-                                              :port (:esl-port fs-a)
-                                              :password (:esl-pass fs-a)
+                outbound-server   (promise)
+                conn              (fc/connect :host (:host fsa)
+                                              :port (:esl-port fsa)
+                                              :password (:esl-pass fsa)
                                               :async-thread-type :thread)]
             (try
               (testing "Setting up server for outbound connections from host B ..."
-                (deliver b-outbound-server
-                         (fc/listen :host "127.0.0.1"
+                (deliver outbound-server
+                         (fc/listen :host esl-outbound-host
                                     :port esl-outbound-port
-                                    :handler (fn [conn-b chan-info]
+                                    :handler (fn [conn chan-info]
                                                (deliver connected-with-b? true))
                                     :async-thread-type thread-type)))
 
               (try
                 (testing "Sending originate command to host A to call B ..."
-                  (let [originate-cmd (format "originate {ignore_early_media=false}sofia/external/%s@%s:%s &socket('127.0.0.1:%s') async full"
-                                              (:sip-user fs-b)
-                                              (:host fs-b)
-                                              (:sip-port fs-b)
+                  (let [originate-cmd (format "originate {ignore_early_media=false,sip_auth_username='%s',sip_auth_password='%s'}sofia/external/%s@%s:%s &socket('%s:%s async full')"
+                                              (:sip-user fsb)
+                                              (:sip-pass fsb)
+                                              "5550001234"
+                                              (:host fsb)
+                                              (:sip-port fsb)
+                                              esl-outbound-host
                                               esl-outbound-port)]
-                    (is (= (select-keys (fc/req-api conn-a originate-cmd) [:ok])
+                    (is (= (select-keys (fc/req-api conn originate-cmd) [:ok])
                            {:ok true}))))
 
                 (testing "Checking if outbound connection was made within 10 seconds ..."
@@ -148,51 +159,52 @@
 
               (finally
                 ;; Closing previous outbound server.
-                (.close @b-outbound-server)))))
+                (.close @outbound-server)))))
 
         (testing "Testing if :pre-init-fn works as intended ..."
           (let [answer-event-handled? (promise)
-                b-outbound-server     (promise)
-                conn-a                (fc/connect :host (:host fs-a)
-                                                  :port (:esl-port fs-a)
-                                                  :password (:esl-pass fs-a)
+                outbound-server       (promise)
+                conn                  (fc/connect :host (:host fsa)
+                                                  :port (:esl-port fsa)
+                                                  :password (:esl-pass fsa)
                                                   :async-thread-type :thread)]
             (try
               ;; Setup outbound connection listener.
-              (deliver b-outbound-server
-                       (fc/listen :host "127.0.0.1"
+              (deliver outbound-server
+                       (fc/listen :host esl-outbound-host
                                   :port esl-outbound-port
-                                  :pre-init-fn (fn [conn-b chan-info]
+                                  :pre-init-fn (fn [conn chan-info]
                                                  ;; Note that we are binding event handler before the channel answer.
-                                                 (fc/bind-event conn-b
+                                                 (fc/bind-event conn
                                                                 (fn [_ event]
                                                                   (when (= (:event-name event) "CHANNEL_ANSWER")
                                                                     (deliver answer-event-handled? :from-pre-init)))
                                                                 :event-name "CHANNEL_ANSWER"))
 
-                                  :handler (fn [conn-b chan-info]
+                                  :handler (fn [conn chan-info]
                                              ;; Sleep for five seconds to simulate CPU congestion.
                                              ;; Note that the call is answered after 3 seconds.
                                              (Thread/sleep 5000)
 
                                              ;; This event handler will not catch the answer event.
-                                             (fc/bind-event conn-b
+                                             (fc/bind-event conn
                                                             (fn [_ event]
                                                               (when (= (:event-name event) "CHANNEL_ANSWER")
                                                                 (deliver answer-event-handled? :from-conn-handler)))
                                                             :event-name "CHANNEL_ANSWER")
 
                                              ;; Wait for answer to close naturally.
-                                             @(:closed? conn-b))
+                                             @(:closed? conn))
                                   :async-thread-type thread-type))
               (try
                 ;; Sending originate command to host A to call B ...
-                (let [originate-cmd (format "originate sofia/external/%s@%s:%s/+55512345678 &socket('127.0.0.1:%s') async full"
-                                            (:sip-user fs-b)
-                                            (:host fs-b)
-                                            (:sip-port fs-b)
+                (let [originate-cmd (format "originate sofia/external/%s@%s:%s/+55512345678 &socket('%s:%s') async full"
+                                            (:sip-user fsb)
+                                            (:host fsb)
+                                            (:sip-port fsb)
+                                            esl-outbound-host
                                             esl-outbound-port)]
-                  (is (= (select-keys (fc/req-api conn-a originate-cmd) [:ok])
+                  (is (= (select-keys (fc/req-api conn originate-cmd) [:ok])
                          {:ok true})))
 
                 ;; Check if answer event was handled from pre-init binding.
@@ -201,20 +213,20 @@
 
                 (finally
                   ;; Closing outbound server.
-                  (.close @b-outbound-server)))
+                  (.close @outbound-server)))
 
               (finally
                 ;; Closing inbound connection.
-                (fc/disconnect conn-a)))))))))
+                (fc/disconnect conn)))))))))
 
 
 (defn test-fs-inbound-connection-disruption
   []
   (testing "Testing graceful handling of fs-inbound connection disruption ..."
-    (let [{:keys [fs-a]} (get-freeswitch-esl-connection-configs)
-          conn           (fc/connect :host (:host fs-a)
-                                     :port (:esl-port fs-a)
-                                     :password (:esl-pass fs-a))]
+    (let [{:keys [fsa]} (get-freeswitch-connection-configs)
+          conn          (fc/connect :host (:host fsa)
+                                    :port (:esl-port fsa)
+                                    :password (:esl-pass fsa))]
 
       ;; Close the connection from low level to simulate disruption.
       (stream/close! (:aleph-stream conn))
@@ -226,37 +238,41 @@
 
 (deftest test-fs-outbound-connection-disruption
   (testing "Testing graceful handling of fs-outbound connection disruption ..."
-    (let [{:keys [fs-a fs-b esl-outbound-port]} (get-freeswitch-esl-connection-configs)]
+    (let [{:keys [fsa
+                  fsb
+                  esl-outbound-host
+                  esl-outbound-port]} (get-freeswitch-connection-configs)]
       (testing "Testing if outbound mode works ..."
         (let [received-exception (promise)
-              b-outbound-server  (promise)
-              conn-a             (fc/connect :host (:host fs-a)
-                                             :port (:esl-port fs-a)
-                                             :password (:esl-pass fs-a)
+              outbound-server    (promise)
+              conn               (fc/connect :host (:host fsa)
+                                             :port (:esl-port fsa)
+                                             :password (:esl-pass fsa)
                                              :async-thread-type :thread)]
           (try
-            (deliver b-outbound-server
-                     (fc/listen :host "127.0.0.1"
+            (deliver outbound-server
+                     (fc/listen :host esl-outbound-host
                                 :port esl-outbound-port
-                                :handler (fn [conn-b chan-info]
+                                :handler (fn [conn chan-info]
                                            ;; Deliberately close the connection from
                                            ;; low level to simulate disruption.
-                                           (stream/close! (:aleph-stream conn-b))
+                                           (stream/close! (:aleph-stream conn))
 
                                            ;; Try to send a simple status command.
                                            (try
-                                             (fc/req-api conn-b "status")
+                                             (fc/req-api conn "status")
                                              (catch IOException _
                                                (deliver received-exception :io-exception))
                                              (catch Exception _
                                                (deliver received-exception :unknown-exception))))))
 
-            (let [originate-cmd (format "originate {ignore_early_media=false}sofia/external/%s@%s:%s &socket('127.0.0.1:%s') async full"
-                                        (:sip-user fs-b)
-                                        (:host fs-b)
-                                        (:sip-port fs-b)
+            (let [originate-cmd (format "originate {ignore_early_media=false}sofia/external/%s@%s:%s &socket('%s:%s') async full"
+                                        (:sip-user fsb)
+                                        (:host fsb)
+                                        (:sip-port fsb)
+                                        esl-outbound-host
                                         esl-outbound-port)]
-              (is (= (select-keys (fc/req-api conn-a originate-cmd) [:ok])
+              (is (= (select-keys (fc/req-api conn originate-cmd) [:ok])
                      {:ok true})))
 
             ;; We should receive io-exception.
@@ -265,27 +281,27 @@
 
             (finally
               ;; Closing previous outbound server.
-              (.close @b-outbound-server))))))))
+              (.close @outbound-server))))))))
 
 
 (deftest test-connection-sharing-between-threads
   (testing "Testing connection sharing between threads ..."
-    (let [{:keys [fs-a]} (get-freeswitch-esl-connection-configs)
-          conn           (fc/connect :host (:host fs-a)
-                                     :port (:esl-port fs-a)
-                                     :password (:esl-pass fs-a)
-                                     :async-thread-type :thread)
-          n-threads      100
-          n-msgs         100
-          create-msg     (fn [thread-id msg-id]
-                           (str thread-id "-" msg-id))
-          spawn-thread   (fn [thread-id]
-                           (future
-                             [thread-id
-                              (vec (for [msg-id (range n-msgs)]
-                                     (let [msg (create-msg thread-id msg-id) ]
-                                       (:result (fc/req-api conn (str "eval " msg))))))]))
-          futures        (doall (map spawn-thread (range n-threads)))]
+    (let [{:keys [fsa]} (get-freeswitch-connection-configs)
+          conn          (fc/connect :host (:host fsa)
+                                    :port (:esl-port fsa)
+                                    :password (:esl-pass fsa)
+                                    :async-thread-type :thread)
+          n-threads     100
+          n-msgs        100
+          create-msg    (fn [thread-id msg-id]
+                          (str thread-id "-" msg-id))
+          spawn-thread  (fn [thread-id]
+                          (future
+                            [thread-id
+                             (vec (for [msg-id (range n-msgs)]
+                                    (let [msg (create-msg thread-id msg-id) ]
+                                      (:result (fc/req-api conn (str "eval " msg))))))]))
+          futures       (doall (map spawn-thread (range n-threads)))]
       ;; Wait for 5 seconds for all the messages to be delivered.
       (Thread/sleep 5000)
 
@@ -305,12 +321,12 @@
 (deftest test-connection-hammering
   (testing "Testing connection hammering ..."
     ;; This test can fail if responses are not received in order.
-    (let [{:keys [fs-a]} (get-freeswitch-esl-connection-configs)
-          conn           (fc/connect :host (:host fs-a)
-                                     :port (:esl-port fs-a)
-                                     :password (:esl-pass fs-a)
-                                     :async-thread-type :thread)
-          n-msgs         10000]
+    (let [{:keys [fsa]} (get-freeswitch-connection-configs)
+          conn          (fc/connect :host (:host fsa)
+                                    :port (:esl-port fsa)
+                                    :password (:esl-pass fsa)
+                                    :async-thread-type :thread)
+          n-msgs        10000]
       (doseq [i (range n-msgs)]
         (let [resp (fc/req-api conn (str "eval " i))]
           (is (= (str i) (str/trim (:result resp)))))))))
@@ -318,56 +334,334 @@
 
 (deftest test-on-close-fn-triggering-in-inbound-mode
   (testing "Testing if on-close function works in freeswitch-inbound mode ..."
-    (let [{:keys [fs-a]}   (get-freeswitch-esl-connection-configs)
-          on-close-called? (atom false)
-          conn             (fc/connect :host (:host fs-a)
-                                       :port (:esl-port fs-a)
-                                       :password (:esl-pass fs-a)
-                                       :async-thread-type :thread
-                                       :on-close (fn [fscon]
-                                                   (reset! on-close-called? true)))]
-
+    (let [{:keys [fsa]}   (get-freeswitch-connection-configs)
+          n-on-close-call (atom 0)
+          conn            (fc/connect :host (:host fsa)
+                                      :port (:esl-port fsa)
+                                      :password (:esl-pass fsa)
+                                      :async-thread-type :thread
+                                      :on-close (fn [conn]
+                                                  (swap! n-on-close-call inc)))]
       ;; Close the connection.
       (fc/close conn)
 
       ;; Wait for connection to close.
       (deref (:closed? conn) 5000 :timed-out)
 
-      (is (= @on-close-called? true)))))
+      ;; Wait for some time.
+      (Thread/sleep 1000)
+
+      ;; Check the number of times `on-close` was called.
+      (is (= @n-on-close-call 1)))))
 
 
 (deftest test-fs-close-fn-triggering-in-outbound-mode
   (testing "Testing if on-close function works in freeswitch-inbound mode ..."
-    (let [{:keys [fs-a fs-b esl-outbound-port]} (get-freeswitch-esl-connection-configs)]
+    (let [{:keys [fsa
+                  fsb
+                  esl-outbound-host
+                  esl-outbound-port]} (get-freeswitch-connection-configs)]
       (testing "Testing if outbound mode works ..."
-        (let [b-outbound-server (promise)
-              on-close-called?  (promise)
-              conn-a            (fc/connect :host (:host fs-a)
-                                            :port (:esl-port fs-a)
-                                            :password (:esl-pass fs-a)
-                                            :async-thread-type :thread)]
+        (let [outbound-server  (promise)
+              outbound-conn    (promise)
+              on-close-called? (promise)
+              n-on-close-call  (atom 0)
+              conn             (fc/connect :host (:host fsa)
+                                           :port (:esl-port fsa)
+                                           :password (:esl-pass fsa)
+                                           :async-thread-type :thread)]
           (try
-            (deliver b-outbound-server
-                     (fc/listen :host "127.0.0.1"
+            (deliver outbound-server
+                     (fc/listen :host esl-outbound-host
                                 :port esl-outbound-port
-                                :handler (fn [conn-b chan-info]
+                                :handler (fn [conn chan-info]
+                                           (deliver outbound-conn conn)
                                            ;; Deliberately close the connection from
                                            ;; low level to simulate disruption.
-                                           (stream/close! (:aleph-stream conn-b)))
-                                :on-close (fn [fscon]
+                                           (stream/close! (:aleph-stream conn)))
+                                :on-close (fn [conn]
+                                            (swap! n-on-close-call inc)
                                             (deliver on-close-called? true))))
 
-            (let [originate-cmd (format "originate {ignore_early_media=false}sofia/external/%s@%s:%s &socket('127.0.0.1:%s') async full"
-                                        (:sip-user fs-b)
-                                        (:host fs-b)
-                                        (:sip-port fs-b)
+            (let [originate-cmd (format "originate {ignore_early_media=false,sip_auth_username='%s',sip_auth_password='%s'}sofia/external/%s@%s:%s &socket('%s:%s async full')"
+                                        (:sip-user fsb)
+                                        (:sip-pass fsb)
+                                        "5554441234"
+                                        (:host fsb)
+                                        (:sip-port fsb)
+                                        esl-outbound-host
                                         esl-outbound-port)]
-              (is (= (select-keys (fc/req-api conn-a originate-cmd) [:ok])
+              (is (= (select-keys (fc/req-api conn originate-cmd) [:ok])
                      {:ok true}))
 
 
-              (is (= (deref on-close-called? 10000 :timed-out) true)))
+              (is (= (deref on-close-called? 10000 :timed-out) true))
+
+              ;; Wait some time.
+              (Thread/sleep 1000)
+
+              ;; Check if `on-close` was called only a single time.
+              (is (= @n-on-close-call 1))
+
+              ;; Check if outbound connection was properly closed.
+              (is (= true
+                     (boolean (and (realized? outbound-conn)
+                                   (realized? (:closed? @outbound-conn))))))
+
+              ;; Check if event-chan was properly closed.
+              (is (= true
+                     (boolean (and (realized? outbound-conn)
+                                   (nil? (async/poll! (:event-chan @outbound-conn))))))))
 
             (finally
               ;; Closing previous outbound server.
-              (.close @b-outbound-server))))))))
+              (.close @outbound-server))))))))
+
+
+;; Callee numbers: 555444xxxx
+(deftest test-disconnect-behavior-in-outbound-mode-with-callee-hangup
+  (let [{:keys [fsa
+                fsb
+                esl-outbound-host
+                esl-outbound-port]} (get-freeswitch-connection-configs)]
+    (let [outbound-server  (promise)
+          linger-time-sec  3
+          calls-per-second 10
+          n-calls          50
+          records          (atom {:n-originated    0
+                                  :n-connected     0
+                                  :n-play-started  0
+                                  :n-hanged-up     0
+                                  :n-disconnected  0})
+          conn             (fc/connect :host (:host fsa)
+                                       :port (:esl-port fsa)
+                                       :password (:esl-pass fsa)
+                                       :async-thread-type :thread)
+          outbound-conns   (atom [])]
+      (try
+        (deliver outbound-server
+                 (fc/listen :host esl-outbound-host
+                            :port esl-outbound-port
+                            :pre-init-fn (fn [conn _]
+                                           ;; Bind an event handler for CHANNEL_HANGUP event.
+                                           (fc/bind-event conn
+                                                          (fn [_ _]
+                                                            (swap! records update :n-hanged-up inc))
+                                                          :event-name "CHANNEL_HANGUP")
+                                           ;; Bind a catch all event handler which silently absorbs other events.
+                                           (fc/bind-event conn (fn [_ _])))
+                            :custom-init-fn (fn [conn _]
+                                              (fc/req-cmd conn (str "linger " linger-time-sec))
+                                              (fc/req-cmd conn "myevents"))
+                            :on-close (fn [conn]
+                                        (swap! records update :n-disconnected inc))
+                            :handler (fn [conn chan-info]
+                                       (swap! records update :n-connected inc)
+                                       (swap! outbound-conns conj conn)
+
+                                       ;; We need to supply media from this side so that codec negotiation may start.
+                                       (let [{:keys [ok]} (fc/req-call-execute conn (format "playback %s" "test_audio.wav"))]
+                                         (when ok
+                                           (swap! records update :n-play-started inc)))
+
+                                       ;; Wait for connection to close.
+                                       @(:closed? conn))))
+        ;; Originate a large number of calls.
+        (doseq [call-no (range n-calls)]
+          (let [originate-cmd (format "originate {ignore_early_media=true,continue_on_fail=true,origination_caller_id_number='%s',sip_auth_username='%s',sip_auth_password='%s'}sofia/external/%s@%s:%s &socket('%s:%s async full')"
+                                      (format "555111%04d" call-no) ; Caller ID
+                                      (:sip-user fsb) ; SIP auth user
+                                      (:sip-pass fsb) ; SIP auth pass
+                                      (format "555444%04d" call-no) ; Callee number.
+                                      (:host fsb) ; Gateway host
+                                      (:sip-port fsb) ; Gateway port
+                                      esl-outbound-host
+                                      esl-outbound-port)]
+            (fc/req-bgapi conn
+                          (fn [_ {:keys [ok] :as result}]
+                            (when ok
+                              (swap! records update :n-originated inc)))
+                          originate-cmd)
+            ;; Sleep for some time so that CPS is under limit.
+            (Thread/sleep (quot 1000 calls-per-second))))
+
+        ;; call_time ~= answer_delay + playback_time + hangup_delay + linger_time
+        ;;           ~= 1s + 5s + 1s + 3s
+        ;;           ~= 10s
+        (testing "Waiting for calls to finish ..."
+          (let [max-wait-time-sec  60
+                check-interval-sec 5
+                n-checks           (inc (quot max-wait-time-sec check-interval-sec))]
+            (doseq [_      (range n-checks)
+                    :while (let [{:keys [n-originated
+                                         n-connected
+                                         n-play-started
+                                         n-hanged-up
+                                         n-disconnected]} @records]
+                             (not= n-calls
+                                   n-originated
+                                   n-connected
+                                   n-play-started
+                                   n-hanged-up
+                                   n-disconnected))]
+              (let [{:keys [n-originated
+                            n-connected
+                            n-play-started
+                            n-hanged-up
+                            n-disconnected]} @records]
+                (println (format "n: %s, orig: %s, connected: %s, play-started: %s, hanged-up: %s, disconnected: %s ..."
+                                 n-calls
+                                 n-originated
+                                 n-connected
+                                 n-play-started
+                                 n-hanged-up
+                                 n-disconnected)))
+              (Thread/sleep (* 1000 check-interval-sec))))
+
+          ;; Check if all the events were accounted for.
+          (let [{:keys [n-originated
+                        n-connected
+                        n-play-started
+                        n-hanged-up
+                        n-disconnected]} @records]
+            (is (= n-calls
+                   n-originated
+                   n-connected
+                   n-play-started
+                   n-hanged-up
+                   n-disconnected))))
+
+        (testing "Checking if resources were properly closed ..."
+          (is (every? #(realized? (:closed? %)) @outbound-conns))
+          (is (every? #(nil? (async/poll! (:event-chan %))) @outbound-conns)))
+
+        (finally
+          ;; Closing previous outbound server.
+          (.close @outbound-server))))))
+
+
+;; Callee numbers: 555555xxxx
+(deftest test-disconnect-behavior-in-outbound-mode-with-caller-hangup
+  (let [{:keys [fsa
+                fsb
+                esl-outbound-host
+                esl-outbound-port]} (get-freeswitch-connection-configs)]
+    (let [outbound-server  (promise)
+          linger-time-sec  3
+          calls-per-second 10
+          n-calls          50
+          records          (atom {:n-originated    0
+                                  :n-connected     0
+                                  :n-play-started  0
+                                  :n-hanged-up     0
+                                  :n-disconnected  0})
+          conn             (fc/connect :host (:host fsa)
+                                       :port (:esl-port fsa)
+                                       :password (:esl-pass fsa)
+                                       :async-thread-type :thread)
+          outbound-conns   (atom [])]
+      (try
+        (deliver outbound-server
+                 (fc/listen :host esl-outbound-host
+                            :port esl-outbound-port
+                            :pre-init-fn (fn [conn chan-info]
+                                           (let [chan-uuid (:channel-unique-id chan-info)]
+                                             ;; Bind an event handler for CHANNEL_HANGUP event.
+                                             (fc/bind-event conn
+                                                            (fn [_ _]
+                                                              (swap! records update :n-hanged-up inc))
+                                                            :event-name "CHANNEL_HANGUP"
+                                                            :unique-id chan-uuid)
+                                             ;; Bind a catch all event handler which silently absorbs other events.
+                                             (fc/bind-event conn (fn [_ _]))))
+                            :custom-init-fn (fn [conn _]
+                                              (fc/req-cmd conn (str "linger " linger-time-sec))
+                                              (fc/req-cmd conn "myevents"))
+                            :on-close (fn [conn]
+                                        (swap! records update :n-disconnected inc))
+                            :handler (fn [conn chan-info]
+                                       (swap! records update :n-connected inc)
+                                       (swap! outbound-conns conj conn)
+
+                                       ;; We need to supply media from this side so that codec negotiation may start.
+                                       (let [{:keys [ok]} (fc/req-call-execute conn (format "playback %s" "test_audio.wav"))]
+                                         (when ok
+                                           (swap! records update :n-play-started inc)
+
+                                           ;; Sleep for five seconds.
+                                           (Thread/sleep 5000)
+
+                                           ;; Hangup the call.
+                                           (fc/req-call-execute conn "hangup")))
+
+                                       ;; Wait for connection to close.
+                                       @(:closed? conn))))
+        ;; Originate a large number of calls.
+        (doseq [call-no (range n-calls)]
+          (let [originate-cmd (format "originate {ignore_early_media=true,continue_on_fail=true,origination_caller_id_number='%s',sip_auth_username='%s',sip_auth_password='%s'}sofia/external/%s@%s:%s &socket('%s:%s async full')"
+                                      (format "555111%04d" call-no) ; Caller ID
+                                      (:sip-user fsb) ; SIP auth user
+                                      (:sip-pass fsb) ; SIP auth pass
+                                      (format "555555%04d" call-no) ; Callee number.
+                                      (:host fsb) ; Gateway host
+                                      (:sip-port fsb) ; Gateway port
+                                      esl-outbound-host
+                                      esl-outbound-port)]
+            (fc/req-bgapi conn
+                          (fn [_ {:keys [ok] :as result}]
+                            (when ok
+                              (swap! records update :n-originated inc)))
+                          originate-cmd)
+            ;; Sleep for some time so that CPS is under limit.
+            (Thread/sleep (quot 1000 calls-per-second))))
+
+        (testing "Waiting for calls to finish ..."
+          (let [max-wait-time-sec  60
+                check-interval-sec 5
+                n-checks           (inc (quot max-wait-time-sec check-interval-sec))]
+            (doseq [_      (range n-checks)
+                    :while (let [{:keys [n-originated
+                                         n-connected
+                                         n-play-started
+                                         n-hanged-up
+                                         n-disconnected]} @records]
+                             (not= n-calls
+                                   n-originated
+                                   n-connected
+                                   n-play-started
+                                   n-hanged-up
+                                   n-disconnected))]
+              (let [{:keys [n-originated
+                            n-connected
+                            n-play-started
+                            n-hanged-up
+                            n-disconnected]} @records]
+                (println (format "n: %s, orig: %s, connected: %s, play-started: %s, hanged-up: %s, disconnected: %s ..."
+                                 n-calls
+                                 n-originated
+                                 n-connected
+                                 n-play-started
+                                 n-hanged-up
+                                 n-disconnected)))
+              (Thread/sleep (* 1000 check-interval-sec))))
+
+          ;; Check if all the events were accounted for.
+          (let [{:keys [n-originated
+                        n-connected
+                        n-play-started
+                        n-hanged-up
+                        n-disconnected]} @records]
+            (is (= n-calls
+                   n-originated
+                   n-connected
+                   n-play-started
+                   n-hanged-up
+                   n-disconnected))))
+
+        (testing "Checking if resources were properly closed ..."
+          (is (every? #(realized? (:closed? %)) @outbound-conns))
+          (is (every? #(nil? (async/poll! (:event-chan %))) @outbound-conns)))
+
+        (finally
+          ;; Closing previous outbound server.
+          (.close @outbound-server))))))
