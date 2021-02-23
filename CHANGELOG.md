@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.1.2] - 2021-02-23
+### Changed
+- Fixed various edge cases related to connection closure -
+  - Fixed overzealous disconnect upon receiving disconnect notice.
+  - Fixed `on-close` function being called multiple times.
+  - Freeswitch-clj now works as intended with `linger` mode.
+- Data reception is now buffered. The buffer can be configured
+  using `incoming-buffer-size` parameter to `listen` and `connect`.
+  This helps smooth out incoming data flow duing high load situations.
+- Revamped the test environment using docker-compose. Also, added more
+  tests to simulate the edge case behaviors.
+- Freeswitch-clj now correctly handles `text/rude-rejection` message
+  and throws an exception with a helpful message.
+
 ## [1.1.1] - 2021-02-09
 ### Changed
 - `on-close` function has been changed to take a single argument -
@@ -98,6 +112,7 @@
 
 Initial commit.
 
+[1.1.2]: https://github.com/titonbarua/freeswitch-clj/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/titonbarua/freeswitch-clj/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/titonbarua/freeswitch-clj/compare/v1.0.2...v1.0.3
