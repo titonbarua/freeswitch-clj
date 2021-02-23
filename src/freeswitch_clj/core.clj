@@ -246,14 +246,13 @@
 
 (declare disconnect)
 (defn- send-password
-  [{:keys [password authenticated?] :as conn} msg]
+  [{:keys [password auth-status] :as conn} msg]
   (async/go (let [{:keys [ok]} (async/<! (req conn ["auth" password] {} nil))]
               (if-not ok
-                (do (log-with-conn conn :error "Failed to authenticate.")
-                    (disconnect conn)
-                    (deliver authenticated? false))
-                (do (log-wc-debug conn "Authenticated."
-                                  (deliver authenticated? true)))))))
+                (do (disconnect conn)
+                    (deliver auth-status :auth-failure))
+                (do (log-wc-debug conn "Authenticated.")
+                    (deliver auth-status :auth-success))))))
 
 (defn- fulfil-result
   [{:keys [resp-chans-queue-atom] :as conn} result]
@@ -347,6 +346,10 @@
   [{:keys [connected? aleph-stream] :as conn} msg]
   (log-wc-debug conn "Received disconnect-notice."))
 
+(defn- handle-rude-rejection
+  [{:keys [auth-status] :as conn} msg]
+  (deliver auth-status :rude-rejection))
+
 (defn- create-aleph-data-consumer
   "Create a data consumer to process incoming data in an aleph stream."
   [{:keys [rx-buff event-chan] :as conn}]
@@ -367,6 +370,7 @@
             (case ctype
               "auth/request" (send-password conn m)
               "command/reply" (fulfil-result conn (parse-command-reply m))
+              "text/rude-rejection" (handle-rude-rejection conn m)
               "api/response" (fulfil-result conn (parse-api-response m))
               "text/event-plain" (enqueue-event conn (parse-event m))
               "text/event-json" (enqueue-event conn (parse-event m))
@@ -519,7 +523,7 @@
                                        :port           port
                                        :password       password
                                        :conn-timeout   conn-timeout
-                                       :authenticated? (promise)
+                                       :auth-status    (promise)
                                        :mode           :fs-inbound
 
                                        :closed?               (promise)
@@ -545,13 +549,22 @@
     (spawn-event-dispatcher async-thread-type conn)
 
     ;; Block until authentication step is complete.
-    (if @(conn :authenticated?)
-      (do (init-inbound conn)
-          conn)
+    (case @(conn :auth-status)
+      :rude-rejection
+      (do (close conn)
+          (throw (ex-info "Connection rejected. Please check ESL 'apply-inbound-acl' param."
+                          {:host (conn :host)
+                           :port (conn :port)})))
+
+      :auth-failure
       (do (close conn)
           (throw (ex-info "Failed to authenticate."
                           {:host (conn :host)
-                           :port (conn :port)}))))))
+                           :port (conn :port)})))
+
+      :auth-success
+      (do (init-inbound conn)
+          conn))))
 
 (defn listen
   "Listen for outbound connections from freeswitch.

@@ -5,7 +5,8 @@
             [manifold.stream :as stream]
             [freeswitch-clj.core :as fc]
             [clojure.string :as str])
-  (:import [java.io IOException]))
+  (:import [java.io IOException]
+           [java.net InetSocketAddress]))
 
 (log/merge-config! {:level :warn})
 
@@ -17,6 +18,9 @@
                                           (Integer/parseInt))
                            :esl-pass (get env "FSA_ESL_INBOUND_PASS")}
         fsb               {:host     (get env "FSB_HOST")
+                           :esl-port (->> (get env "FSB_ESL_INBOUND_PORT")
+                                          (Integer/parseInt))
+                           :esl-pass (get env "FSB_ESL_INBOUND_PASS")
                            :sip-port (->> (get env "FSB_SIP_PORT")
                                           (Integer/parseInt))
                            :sip-user (get env "FSB_SIP_USER")
@@ -665,3 +669,25 @@
         (finally
           ;; Closing previous outbound server.
           (.close @outbound-server))))))
+
+
+(deftest test-rude-rejection-handling
+  (let [{:keys [fsb]} (get-freeswitch-connection-configs)]
+    (doseq [thread-type [:thread :go-block]]
+      (testing (format "Creating inbound connection to freeswitch host A with thread type %s ..."
+                       thread-type)
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"Connection rejected.*"
+             (let [conn (fc/connect :host (:host fsb)
+                                    :port (:esl-port fsb)
+                                    :password (:esl-pass fsb)
+                                    :async-thread-type thread-type)]
+               (try
+                 (testing "Sending 'status' api command ..."
+                   ;; Send a simple 'status' api command.
+                   (is (= (select-keys (fc/req-api conn "status") [:ok])
+                          {:ok true})))
+
+                 (finally
+                   (fc/close conn))))))))))

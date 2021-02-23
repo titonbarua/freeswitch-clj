@@ -55,13 +55,14 @@ services:
       - FSA_ESL_INBOUND_PORT=8021
       - FSA_ESL_INBOUND_PASS=ClueCon
       - FSB_HOST=fsb
+      - FSB_ESL_INBOUND_PORT=8022
+      - FSB_ESL_INBOUND_PASS=ConClue
       - FSB_SIP_PORT=5080
       - FSB_SIP_USER=freeswitch-clj-test-user
       - FSB_SIP_PASS=freeswitch-clj-test-pass
       - FSCLJ_ESL_OUTBOUND_HOST=fsclj
       - FSCLJ_ESL_OUTBOUND_PORT=4321
     command: ["lein", "test"] 
-    # command: ["lein", "test", ":only", "freeswitch-clj.core-test/test-disconnect-behavior-in-outbound-mode-with-caller-hangup"]
 
 networks:
   testnet:
