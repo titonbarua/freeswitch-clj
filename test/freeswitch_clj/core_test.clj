@@ -691,3 +691,25 @@
 
                  (finally
                    (fc/close conn))))))))))
+
+
+(deftest test-incorrect-esl-password-handling
+  (let [{:keys [fsa]} (get-freeswitch-connection-configs)]
+    (doseq [thread-type [:thread :go-block]]
+      (testing (format "Creating inbound connection to freeswitch host A with thread type %s ..."
+                       thread-type)
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"Failed to authenticate.*"
+             (let [conn (fc/connect :host (:host fsa)
+                                    :port (:esl-port fsa)
+                                    :password "ThisIsNotTheCorrectPass"
+                                    :async-thread-type thread-type)]
+               (try
+                 (testing "Sending 'status' api command ..."
+                   ;; Send a simple 'status' api command.
+                   (is (= (select-keys (fc/req-api conn "status") [:ok])
+                          {:ok true})))
+
+                 (finally
+                   (fc/close conn))))))))))
