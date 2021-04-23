@@ -27,8 +27,7 @@
   (:import [java.io IOException]
            [clojure.lang PersistentQueue]))
 
-(log/merge-config! {:level :warn})
-
+(def warn-on-handler-less-event? (atom true))
 
 (declare connect)
 
@@ -291,11 +290,12 @@
     (if handler
       (do (handler conn event)
           true)
-      (do (log-with-conn conn
-                         :warn
-                         "Ignoring handler-less event:"
-                         event
-                         (event :event-name))
+      (do (when @warn-on-handler-less-event?
+            (log-with-conn conn
+                           :warn
+                           "Ignoring handler-less event:"
+                           event
+                           (event :event-name)))
           false))))
 
 (defn- spawn-event-dispatcher

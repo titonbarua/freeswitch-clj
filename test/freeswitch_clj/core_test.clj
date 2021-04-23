@@ -490,7 +490,7 @@
         ;;           ~= 1s + 5s + 1s + 3s
         ;;           ~= 10s
         (testing "Waiting for calls to finish ..."
-          (let [max-wait-time-sec  60
+          (let [max-wait-time-sec  80
                 check-interval-sec 5
                 n-checks           (inc (quot max-wait-time-sec check-interval-sec))]
             (doseq [_      (range n-checks)
