@@ -8,7 +8,7 @@
                  [org.clojure/tools.logging "1.1.0"]
                  [org.slf4j/slf4j-simple "1.7.30"]
                  [danlentz/clj-uuid "0.1.9"]
-                 [cheshire "5.8.1"]
+                 [metosin/jsonista "0.3.1"]
                  [aleph "0.4.6"]
                  #_[alpeh "0.4.7-alpha7"]]
   :profiles {:test {:dependencies [[digest "1.4.9"]]}

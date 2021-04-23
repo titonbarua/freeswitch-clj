@@ -13,7 +13,7 @@
             [clojure.xml :as xml]
             [clojure.set :refer [rename-keys]]
 
-            [cheshire.core :as json]))
+            [jsonista.core :as json ]))
 
 (def ^:private lineend "\n")
 (def ^:private double-lineend "\n\n")
@@ -181,7 +181,7 @@ Also returns rest of the data."
 (defmethod parse-event "text/event-json"
   [{:keys [envelope-content] :as msg}]
   (as-> envelope-content $
-        (json/parse-string $)
+        (json/read-value $)
         (map (fn [[k v]] [(keyword (str/lower-case k)) (str v)]) $)
         (into {} $)
         (rename-keys $ {:_body :body})
