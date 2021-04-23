@@ -15,7 +15,7 @@
             [aleph.tcp :as tcp]
             [manifold.stream :as stream]
             [manifold.deferred :as deferred]
-            [taoensso.timbre :as log]
+            [clojure.tools.logging :as log]
 
             [freeswitch-clj.protocol :refer [decode-all
                                              encode

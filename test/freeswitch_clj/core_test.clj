@@ -1,14 +1,11 @@
 (ns freeswitch-clj.core-test
   (:require [clojure.test :refer :all]
             [clojure.core.async :as async]
-            [taoensso.timbre :as log]
             [manifold.stream :as stream]
             [freeswitch-clj.core :as fc]
             [clojure.string :as str])
   (:import [java.io IOException]
            [java.net InetSocketAddress]))
-
-(log/merge-config! {:level :warn})
 
 (defn get-freeswitch-connection-configs
   []

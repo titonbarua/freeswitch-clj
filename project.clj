@@ -5,7 +5,8 @@
             :url "https://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.8.0" :scope "provided"]
                  [org.clojure/core.async "0.4.500"]
-                 [com.taoensso/timbre "4.10.0"]
+                 [org.clojure/tools.logging "1.1.0"]
+                 [org.slf4j/slf4j-simple "1.7.30"]
                  [danlentz/clj-uuid "0.1.9"]
                  [cheshire "5.8.1"]
                  [aleph "0.4.6"]
