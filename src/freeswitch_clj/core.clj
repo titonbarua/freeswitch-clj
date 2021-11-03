@@ -283,9 +283,10 @@
 (defn- dispatch-event
   [{:keys [event-handlers] :as conn} event]
   (let [event-keys (set (map norm-kv event))
+        ;; As the @event-handlers is a sorted-map, the keys are already sorted
+        ;; by their in reverse order.
         hkey (->> (keys @event-handlers)
-                  (filter #(set/subset? % event-keys))
-                  (reduce #(max-key count %1 %2) nil))
+                  (some #(when (set/subset? % event-keys) %)))
         handler (get @event-handlers hkey)]
     (if handler
       (do (handler conn event)
@@ -403,6 +404,11 @@
     (map (fn [[k v]] [k (url-decode v)]) $)
     (into {} $)))
 
+(defn event-dispatcher-key-sort-comparator
+  [key-a key-b]
+  ;; We want dispatcher with larger key to come before a dispatcher with smaller key.
+  (compare (vec key-b) (vec key-a)))
+
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."
   [handler custom-init-fn pre-init-fn async-thread-type on-close incoming-buffer-size]
@@ -418,7 +424,7 @@
                                          :resp-chans-queue-atom resp-chans-queue-atom
                                          :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
 
-                                         :event-handlers         (atom {})
+                                         :event-handlers         (atom (sorted-map-by event-dispatcher-key-sort-comparator))
                                          :event-chan             (async/chan)
                                          :enabled-special-events (atom (zipmap special-events (repeat false)))}
                                   on-close
@@ -532,7 +538,7 @@
                                        :resp-chans-queue-atom resp-chans-queue-atom
                                        :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
 
-                                       :event-handlers         (atom {})
+                                       :event-handlers         (atom (sorted-map-by event-dispatcher-key-sort-comparator))
                                        :event-chan             (async/chan)
                                        :enabled-special-events (atom (zipmap special-events (repeat false)))}
                                 on-close
