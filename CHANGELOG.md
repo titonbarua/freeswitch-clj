@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2021-11-03
+### changed
+- Changed logging framework from `timbre` to `clojure.tools.logging`.
+- Changed json library from `cheshire` to `jsonista`.
+- Added an atom based flag - `freeswitch-clj.core/warn-on-handler-less-event?`
+  which can be toggled to turn off warnings on handler less event.
+- Improved event dispatch performance. This is noticeable when
+  a very large number of handlers are attached to a single connection.
+
 ## [1.1.2] - 2021-02-23
 ### Changed
 - Fixed various edge cases related to connection closure -
