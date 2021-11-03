@@ -650,7 +650,9 @@
   (let [{:keys [closed?]} conn]
     (if-not (realized? closed?)
       (do (log-wc-debug conn "Sending exit request ...")
-          (req conn ["exit"] {} nil))
+          (try
+            (req conn ["exit"] {} nil)
+            (catch IOException _ nil)))
       (log-with-conn conn :warn "Disconnected already."))))
 
 (defn req-cmd
