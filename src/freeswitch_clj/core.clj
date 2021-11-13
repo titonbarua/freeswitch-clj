@@ -243,6 +243,7 @@
       (log-with-conn conn :warn "Binding a catch-all-stray handler!"))
     (swap! (:event-handlers conn) dissoc hkey)))
 
+
 (declare disconnect)
 (defn- send-password
   [{:keys [password auth-status] :as conn} msg]
@@ -282,6 +283,8 @@
 ;; about which one will get selected.
 (defn- dispatch-event
   [{:keys [event-handlers] :as conn} event]
+  (assert (= (type @event-handlers) clojure.lang.PersistentTreeMap)
+          "Event-handlers map is not a sorted-map!")
   (let [event-keys (set (map norm-kv event))
         ;; As the @event-handlers is a sorted-map, the keys are already sorted
         ;; by their in reverse order.
@@ -339,9 +342,13 @@
     (deliver closed? true)))
 
 (defn ack-drainage
-  [{:keys [event-chan rx-buff] :as conn}]
+  [{:keys [event-chan rx-buff resp-chans-queue-atom] :as conn}]
   ;; As there is no more data to receive, we should close the event channel.
-  (async/close! event-chan))
+  (async/close! event-chan)
+
+  ;; Close all response channels.
+  (doseq [resp-chan @resp-chans-queue-atom]
+    (async/close! resp-chan)))
 
 (defn- handle-disconnect-notice
   [{:keys [connected? aleph-stream] :as conn} msg]
@@ -408,6 +415,11 @@
   [key-a key-b]
   ;; We want dispatcher with larger key to come before a dispatcher with smaller key.
   (compare (vec key-b) (vec key-a)))
+
+(defn clear-all-event-handlers
+  "Clears the event handler map of a connection."
+  [conn]
+  (reset! (:event-handlers conn) (sorted-map-by event-dispatcher-key-sort-comparator)))
 
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."

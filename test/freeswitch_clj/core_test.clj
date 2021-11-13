@@ -64,7 +64,7 @@
               ;; Catch background_job with a generalized handler.
               (let [beacon (promise)]
                 ;; Reset event handlers.
-                (reset! (conn :event-handlers) {})
+                (fc/clear-all-event-handlers conn)
 
                 ;; Bind a general handler for bgjob.
                 (fc/bind-event conn
@@ -86,7 +86,7 @@
               ;; handler exists.
               (let [beacon (promise)]
                 ;; Reset event handlers.
-                (reset! (conn :event-handlers) {})
+                (fc/clear-all-event-handlers conn)
 
                 ;; Bind a catch-all-stray handler.
                 (fc/bind-event conn
