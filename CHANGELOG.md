@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ## [1.2.0] - 2021-11-03
+### Changed
+- Fixed response channels being dangled after a connection is drained.
+  They are now closed after drainage and returns nil on read.
+### Added
+- Added a new function `clear-all-event-handlers`
+  to help clear event handlers without destroying it's sorted type.
+
+## [1.2.0] - 2021-11-03
 ### changed
 - Changed logging framework from `timbre` to `clojure.tools.logging`.
 - Changed json library from `cheshire` to `jsonista`.
