@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [1.2.0] - 2021-11-03
+## [1.2.1] - 2021-11-13
 ### Changed
 - Fixed response channels being dangled after a connection is drained.
   They are now closed after drainage and returns nil on read.
