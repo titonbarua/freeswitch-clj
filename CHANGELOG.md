@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+## [1.2.2] - 2021-11-20
+- Fixed potential memory/thread leak issue.
+
 ## [1.2.1] - 2021-11-13
 ### Changed
 - Fixed response channels being dangled after a connection is drained.
