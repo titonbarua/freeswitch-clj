@@ -333,6 +333,11 @@
 
 (defn ack-closure
   [{:keys [on-close-fn event-chan closed?] :as conn}]
+  ;; As ack-drainage is not triggered upon connection closure from this side, We
+  ;; should close the event channel here. Without this, event-dispatcher-thread
+  ;; will sometime not properly exit and keep leaking memory.
+  (async/close! event-chan)
+
   (when-not (realized? closed?)
     (when on-close-fn
       (try
