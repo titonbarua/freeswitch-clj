@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.3.0-SNAPSHOT] - 2021-12-02
+- **Breaking** Most blocking api functions now take an optional keyword argument
+  named `resp-timeout`. Previously, they waited forever for server response, causing
+  an occasional thread leak in busy situations. The default value is 30 seconds.
+
 ## [1.2.2] - 2021-11-20
 - Fixed potential memory/thread leak issue.
 
