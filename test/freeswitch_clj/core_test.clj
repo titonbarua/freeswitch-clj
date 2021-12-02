@@ -721,12 +721,11 @@
                                :port (:esl-port fsa)
                                :password (:esl-pass fsa)
                                :async-thread-type thread-type)]
-          (try
-            (testing "Sending 'msleep 10000' api command ..."
+          (testing "Sending 'msleep 10000' api command ..."
                    ;; Send a simple 'sleep' api command which will return after 10 seconds.
                    ;; But we set response timeout to 5 seconds, causing a timeout exception.
-              (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Timeout waiting.*"
-                                    (println (fc/req-api conn "msleep 10000" :resp-timeout 5.0)))))
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Timeout waiting.*"
+                                  (println (fc/req-api conn "msleep 10000" :resp-timeout 5.0))))
 
-            (finally
-              (fc/close conn))))))))
+            ;; The connection should be automatically closed due to the thrown exception.
+            (is (realized? (:closed? conn)))))))))
