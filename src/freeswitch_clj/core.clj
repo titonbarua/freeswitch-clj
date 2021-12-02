@@ -25,11 +25,15 @@
                                              parse-bgapi-response
                                              parse-event]])
   (:import [java.io IOException]
+           [java.lang Throwable]
            [clojure.lang PersistentQueue]))
 
+
 (def warn-on-handler-less-event? (atom true))
+(def default-server-response-timeout 30)
 
 (declare connect)
+
 
 (def
   ^{:private true
@@ -42,6 +46,7 @@
     "CHANNEL_HANGUP"
     "CHANNEL_HANGUP_COMPLETE"})
 
+
 (defn- log-with-conn
   "Log something with the context of conenction."
   [{:keys [mode aleph-stream] :as conn} lvl msg & args]
@@ -53,20 +58,24 @@
               (str (get-in sdesc [:sink :connection :remote-address]))
               (str/join " " (cons msg args)))))
 
+
 (defn- log-wc-debug
   "Log a debug level message with connection context."
   [conn msg & args]
   (apply log-with-conn conn :debug msg args))
+
 
 (defn- log-wc-info
   "Log an info level message with connection context."
   [conn msg & args]
   (apply log-with-conn conn :info msg args))
 
+
 (defn- norm-token
   "Normalize a token, by trimming and upper-casing it."
   [tok]
   (str/upper-case (str/trim (str tok))))
+
 
 (defn- norm-kv
   "Convert a key-val pair into a normalized string, joined by colon."
@@ -74,6 +83,7 @@
   (str (norm-token (name k))
        ":"
        (norm-token (str v))))
+
 
 (defn- detect-special-events
   "Inspect outgoing event un/subscription commands to keep tabs on special events."
@@ -103,7 +113,8 @@
         (str/starts-with? cmd "MYEVENTS")
         (swap! enabled merge (zipmap special-events (repeat true)))
 
-        :default nil))))
+        :else nil))))
+
 
 (defn- create-outgoing-stream
   "Returns a new stream which take a vector of form `[data resp-chan]`,
@@ -117,12 +128,16 @@
     (stream/connect new-stream aleph-stream)
     new-stream))
 
+
 (defn req
   "Make a request to freeswitch.
 
   __Args:__
 
   * `conn` - Freeswitch connection.
+  * `cmd-line` - The request to send.
+  * `cmd-hdrs` - Request headers map.
+  * `cmd-body` - The body of the request.
 
   __Returns:__
 
@@ -151,9 +166,53 @@
         (throw (IOException. "Can't send data to through closed connection.")))
       resp-chan)))
 
+
+
+(defn req-sync
+  "Make a request to freeswitch and wait for response.
+
+  __Args:__
+
+  * `conn` - Freeswitch connection.
+  * `cmd-line` - The request to send.
+  * `cmd-hdrs` - Request headers map.
+  * `cmd-body` - The body of the request.
+
+  __Kwargs:__
+  * `resp-timeout` - (optional) Seconds to wait for server response, before throwing an exception.
+                     Defaults to `30` seconds.
+
+  __Returns:__
+
+  Returns the response when available.
+
+  __Note:__
+
+  This is a low level function, intended to be used by other
+  high-level functions like `req-cmd` etc."
+  [conn
+   cmd-line
+   cmd-hdrs
+   cmd-body
+   & {:keys [resp-timeout]
+      :or   {resp-timeout default-server-response-timeout}}]
+  ;; Send request and wait for response upto `timeout-ms` time.
+  (let [resp-chan    (req conn cmd-line cmd-hdrs cmd-body)
+        timeout-chan (async/timeout (int (* resp-timeout 1000.0)))
+        [resp chan]  (async/alts!! [resp-chan timeout-chan] :priority true)]
+    (if (= chan resp-chan)
+      resp
+      (throw (ex-info "Timeout waiting for response from server."
+                      {:conn     conn
+                       :cmd-line cmd-line
+                       :cmd-hdrs cmd-hdrs
+                       :cmd-body cmd-body})))))
+
+
 (defn- init-inbound
   "Do some initiation rites in inbound mode."
   [conn])
+
 
 (defn- init-outbound
   "Do some initiation rites in outbound mode."
@@ -165,6 +224,7 @@
   ;; NOTE: Without myevents, event processing won't work.
   (req conn ["myevents"] {} nil)
   (log-wc-debug conn "Initiation rites complete."))
+
 
 (defn bind-event
   "Bind a handler function to the event.
@@ -222,6 +282,7 @@
   (let [hkey (set (map norm-kv event-headers))]
     (swap! (:event-handlers conn) assoc hkey handler)))
 
+
 (defn unbind-event
   "Unbind the associated handler for an event.
 
@@ -246,13 +307,19 @@
 
 (declare disconnect)
 (defn- send-password
-  [{:keys [password auth-status] :as conn} msg]
-  (async/go (let [{:keys [ok]} (async/<! (req conn ["auth" password] {} nil))]
-              (if-not ok
-                (do (disconnect conn)
-                    (deliver auth-status :auth-failure))
-                (do (log-wc-debug conn "Authenticated.")
-                    (deliver auth-status :auth-success))))))
+  [{:keys [password auth-status resp-timeout] :as conn} msg]
+  (async/go
+    (let [resp-chan     (req conn ["auth" password] {} nil)
+          timeout-chan  (async/timeout (int (* resp-timeout 1000.0)))
+          [result chan] (async/alts! [resp-chan timeout-chan] :priority true)]
+      (if (= chan resp-chan)
+        (if-not (:ok result)
+          (do (disconnect conn)
+              (deliver auth-status :auth-failure))
+          (do (log-wc-debug conn "Authenticated.")
+              (deliver auth-status :auth-success)))
+        (deliver auth-status :auth-timeout)))))
+
 
 (defn- fulfil-result
   [{:keys [resp-chans-queue-atom] :as conn} result]
@@ -260,9 +327,11 @@
     (async/put! resp-chan result)
     (swap! resp-chans-queue-atom pop)))
 
+
 (defn- enqueue-event
   [{:keys [event-chan] :as conn} event]
   (async/put! event-chan event))
+
 
 ;; How this works:
 ;; Event handlers are put into a map, associated with a set made
@@ -302,6 +371,7 @@
                            (event :event-name)))
           false))))
 
+
 (defn- spawn-event-dispatcher
   "Create a go-block to handle incoming events."
   [async-thread-type {:keys [event-chan] :as conn}]
@@ -320,6 +390,7 @@
           (dispatch-event conn event)
           (recur (async/<!! event-chan)))))))
 
+
 (defn close
   "Close a freeswitch connection.
 
@@ -330,6 +401,7 @@
   [{:keys [aleph-stream event-chan closed? on-close-fn] :as conn}]
   (when-not (realized? closed?)
     (stream/close! aleph-stream)))
+
 
 (defn ack-closure
   [{:keys [on-close-fn event-chan closed?] :as conn}]
@@ -346,6 +418,7 @@
           (log/warn e "Ignored exception in on-close function."))))
     (deliver closed? true)))
 
+
 (defn ack-drainage
   [{:keys [event-chan rx-buff resp-chans-queue-atom] :as conn}]
   ;; As there is no more data to receive, we should close the event channel.
@@ -355,13 +428,16 @@
   (doseq [resp-chan @resp-chans-queue-atom]
     (async/close! resp-chan)))
 
+
 (defn- handle-disconnect-notice
   [{:keys [connected? aleph-stream] :as conn} msg]
   (log-wc-debug conn "Received disconnect-notice."))
 
+
 (defn- handle-rude-rejection
   [{:keys [auth-status] :as conn} msg]
   (deliver auth-status :rude-rejection))
+
 
 (defn- create-aleph-data-consumer
   "Create a data consumer to process incoming data in an aleph stream."
@@ -392,6 +468,7 @@
               (println "Ignoring unexpected content-type: " ctype))))
         (reset! rx-buff data-rest)))))
 
+
 (defn- setup-and-handle-connection
   [conn chan-data pre-init-fn custom-init-fn async-thread-type handler]
   ;; Call pre-init-fn, if given.
@@ -409,6 +486,7 @@
   ;; Call connection handler.
   (handler conn chan-data))
 
+
 (defn- chan-data-from-connect-reply
   [connect-reply]
   (as-> connect-reply $
@@ -416,19 +494,22 @@
     (map (fn [[k v]] [k (url-decode v)]) $)
     (into {} $)))
 
+
 (defn event-dispatcher-key-sort-comparator
   [key-a key-b]
   ;; We want dispatcher with larger key to come before a dispatcher with smaller key.
   (compare (vec key-b) (vec key-a)))
+
 
 (defn clear-all-event-handlers
   "Clears the event handler map of a connection."
   [conn]
   (reset! (:event-handlers conn) (sorted-map-by event-dispatcher-key-sort-comparator)))
 
+
 (defn- create-aleph-conn-handler
   "Create an incoming connection handler to use with aleph/start-server."
-  [handler custom-init-fn pre-init-fn async-thread-type on-close incoming-buffer-size]
+  [handler custom-init-fn pre-init-fn async-thread-type on-close incoming-buffer-size resp-timeout]
   (fn [strm info]
     (let [resp-chans-queue-atom (atom PersistentQueue/EMPTY)
           buffered-strm         (stream/buffer incoming-buffer-size strm)
@@ -459,7 +540,13 @@
         ;; Run handler in a go-block.
         (async/go
           (try
-            (let [chan-data (-> (async/<! (req conn ["connect"] {} nil))
+            (let [resp-chan (req conn ["connect"] {} nil)
+                  chan-data (-> (try
+                                  (let [timeout-chan (async/timeout (int (* resp-timeout 1000.0)))
+                                        [data chan]  (async/alts! [resp-chan timeout-chan] :priority true)]
+                                    (if (= chan resp-chan)
+                                      data
+                                      (throw (ex-info "Timeout waiting for freeswitch channel data." {:conn conn})))))
                                 (chan-data-from-connect-reply))]
               (setup-and-handle-connection conn
                                            chan-data
@@ -473,7 +560,13 @@
         ;; Run handler in an async thread.
         (async/thread
           (try
-            (let [chan-data (-> (async/<!! (req conn ["connect"] {} nil))
+            (let [resp-chan (req conn ["connect"] {} nil)
+                  chan-data (-> (try
+                                  (let [timeout-chan (async/timeout (int (* resp-timeout 1000.0)))
+                                        [data chan]  (async/alts!! [resp-chan timeout-chan] :priority true)]
+                                    (if (= chan resp-chan)
+                                      data
+                                      (throw (ex-info "Timeout waiting for freeswitch channel data." {:conn conn})))))
                                 (chan-data-from-connect-reply))]
               (setup-and-handle-connection conn
                                            chan-data
@@ -486,6 +579,7 @@
 
       ;; Return the aleph stream.
       strm)))
+
 
 (defn connect
   "Make an inbound connection to freeswitch.
@@ -500,17 +594,18 @@
                   Defaults to `\"ClueCon\"`.
   * `:conn-timeout` - (optional) Connection timeout in seconds.
                       Defaults to `10`.
-  * `async-thread-type` - (optional) The type of thread to spawn for event
-                          dispatcher. Valid values are - `thread` and `go-block`.
-                          Default is - `thread`.
-  * `on-close` - (optional) A single-arity function which will be called after
-                 the connection closes. Call signature is: `(fn [fscon])` .
-  * `incoming-buffer-size` - (optional) Number of messages to buffer on the
-                             receive side before applying back-pressure.
-                             Defaults to 32.
+  * `:async-thread-type` - (optional) The type of thread to spawn for event
+                           dispatcher. Valid values are - `thread` and `go-block`.
+                           Default is - `thread`.
+  * `:on-close` - (optional) A single-arity function which will be called after
+                  the connection closes. Call signature is: `(fn [fscon])` .
+  * `:incoming-buffer-size` - (optional) Number of messages to buffer on the
+                              receive side before applying back-pressure.
+                              Defaults to 32.
+  * `:resp-timeout` - (optional) Seconds to wait for server response, for some necessary automatic commands.
+                      Defaults to `30` seconds. Throws exception after the timeout.
 
-  You can add extra keyword arguments to fine tune behavior of `aleph.tcp/client`
-  function.
+  * You can add extra keyword arguments to fine tune behavior of `aleph.tcp/client` function.
 
   __Returns:__
 
@@ -525,29 +620,33 @@
              conn-timeout
              async-thread-type
              on-close
-             incoming-buffer-size]
+             incoming-buffer-size
+             resp-timeout]
       :or   {host                 "127.0.0.1"
              port                 8021
              password             "ClueCon"
              conn-timeout         10
              async-thread-type    :thread
-             incoming-buffer-size 32}
+             incoming-buffer-size 32
+             resp-timeout         default-server-response-timeout}
       :as   kwargs}]
   (let [strm                  @(-> (tcp/client (dissoc kwargs
                                                        :password
                                                        :conn-timeout
                                                        :async-thread-type
                                                        :on-close
-                                                       :incoming-buffer-size))
+                                                       :incoming-buffer-size
+                                                       :resp-timeout))
                                    (deferred/timeout! (int (* conn-timeout 1000))))
         resp-chans-queue-atom (atom PersistentQueue/EMPTY)
         buffered-strm         (stream/buffer incoming-buffer-size strm)
-        conn                  (cond-> {:host           host
-                                       :port           port
-                                       :password       password
-                                       :conn-timeout   conn-timeout
-                                       :auth-status    (promise)
-                                       :mode           :fs-inbound
+        conn                  (cond-> {:host         host
+                                       :port         port
+                                       :password     password
+                                       :conn-timeout conn-timeout
+                                       :resp-timeout resp-timeout
+                                       :auth-status  (promise)
+                                       :mode         :fs-inbound
 
                                        :closed?               (promise)
                                        :aleph-stream          strm
@@ -585,9 +684,15 @@
                           {:host (conn :host)
                            :port (conn :port)})))
 
+      :auth-timeout
+      (do (close conn)
+          (throw (ex-info "Timeout waiting for authentication acknowledgement."
+                          {:conn conn})))
+
       :auth-success
       (do (init-inbound conn)
           conn))))
+
 
 (defn listen
   "Listen for outbound connections from freeswitch.
@@ -599,16 +704,16 @@
                  `conn` is a connection map which can be used with any
                  requester function, like: [[req-cmd]], [[req-api]] etc.
                  `chan-data` is information about current channel.
-  * `:custom-init-fn` - (Optional) A function with signature: `(fn [conn chan-data])`.
+  * `:custom-init-fn` - (optional) A function with signature: `(fn [conn chan-data])`.
                         If provided, it will replace the builtin function which sends
                         initiation rites, like `linger` and `myevents` upon connection
                         creation.
-  * `:pre-init-fn` - (Optional) A function with signature: `(fn [conn chan-data])`.
+  * `:pre-init-fn` - (optional) A function with signature: `(fn [conn chan-data])`.
                      If provided, this function is called before event dispatcher
                      is turned on and before connection initiation function is called.
                      If you predictably want to receive all early events sent by
                      freeswitch, setup your event handlers here.
-  * `:async-thread-type` - (Optional) A keyword indicating types of threads to spawn
+  * `:async-thread-type` - (optional) A keyword indicating types of threads to spawn
                            for event handling and dispatch. Valid values are -
                            `:thread` and `:go-block`. Default is `:thread`.
   * `on-close` - (optional) A single-arity function which will be called after
@@ -616,7 +721,8 @@
   * `incoming-buffer-size` - (optional) Number of messages to buffer on the
                              receive side before applying back-pressure.
                              Defaults to 32.
-
+  * `:resp-timeout` - (optional) Seconds to wait for server response, for some necessary automatic commands.
+                      Defaults to `30` seconds. Throws exception after the timeout.
 
   __Returns:__
 
@@ -636,11 +742,13 @@
              pre-init-fn
              async-thread-type
              on-close
-             incoming-buffer-size]
+             incoming-buffer-size
+             resp-timeout]
       :or   {custom-init-fn       nil
              pre-init-fn          nil
              async-thread-type    :thread
-             incoming-buffer-size 32}
+             incoming-buffer-size 32
+             resp-timeout         default-server-response-timeout}
       :as   kwargs}]
   {:pre [(integer? port)
          (fn? handler)]}
@@ -650,8 +758,10 @@
                                                pre-init-fn
                                                async-thread-type
                                                on-close
-                                               incoming-buffer-size)
+                                               incoming-buffer-size
+                                               resp-timeout)
                     {:port port}))
+
 
 (defn disconnect
   "Gracefully disconnect from freeswitch by sending an 'exit' command.
@@ -672,13 +782,19 @@
             (catch IOException _ nil)))
       (log-with-conn conn :warn "Disconnected already."))))
 
+
 (defn req-cmd
   "Send a simple command request.
 
   __Args:__
 
-  * conn - The connection map.
-  * cmd - The command string including additional arguments.
+  * `conn` - The connection map.
+  * `cmd` - The command string including additional arguments.
+
+  __Kwargs:__
+
+  * `resp-timeout` - (optional) Seconds to wait for server response, before throwing an exception.
+                     Defaults to `30` seconds.
 
   __Returns:__
 
@@ -698,13 +814,16 @@
   'bgapi', 'sendmsg' etc. Rather use the high level functions
   provided for each."
   [conn
-   cmd]
+   cmd
+   & {:keys [resp-timeout]
+      :or   {resp-timeout default-server-response-timeout}}]
   (let [m (re-find #"(?i)^\s*(bgapi|sendmsg|sendevent)" cmd)]
     (if m
       (throw
        (IllegalArgumentException.
         (format "Please use req-%s function instead." (m 1))))
-      (async/<!! (req conn [cmd] {} nil)))))
+      (req-sync conn [cmd] {} nil :resp-timeout resp-timeout))))
+
 
 (defn req-api
   "Convenience function to make an api request.
@@ -713,6 +832,11 @@
 
   * `conn` - The connection map.
   * `api-cmd` - Api command string with arguments.
+
+  __Kwargs:__
+
+  * `resp-timeout` - (optional) Seconds to wait for server response, before throwing an exception.
+                     Defaults to `30` seconds.
 
   __Returns:__
 
@@ -729,9 +853,12 @@
   ```
   "
   [conn
-   api-cmd]
+   api-cmd
+   & {:keys [resp-timeout]
+      :or   {resp-timeout default-server-response-timeout}}]
   (let [cmd-line ["api" api-cmd]]
-    (async/<!! (req conn cmd-line {} nil))))
+    (req-sync conn cmd-line {} nil :resp-timeout resp-timeout)))
+
 
 (defn req-bgapi
   "Make a background api request.
@@ -746,9 +873,15 @@
       * `:event` - The event which delivered the result.
   * `api-cmd` - Api command string with arguments.
 
+  __Kwargs:__
+
+  * `resp-timeout` - (optional) Seconds to wait for server response, before throwing an exception.
+                     Defaults to `30` seconds.
+
   __Returns:__
 
   The command response (not the api result).
+
 
   __Usage Example:__
 
@@ -761,7 +894,9 @@
   "
   [conn
    handler
-   api-cmd]
+   api-cmd
+   & {:keys [resp-timeout]
+      :or   {resp-timeout default-server-response-timeout}}]
   (let [{:keys [enabled-special-events]} conn]
     ;; Ask freeswitch to send us BACKGROUND_JOB events.
     (if-not (@enabled-special-events "BACKGROUND_JOB")
@@ -785,16 +920,24 @@
                   handler'
                   :event-name "BACKGROUND_JOB"
                   :job-uuid gen-job-uuid)
-      (let [{:keys [job-uuid] :as rslt} (async/<!! (req conn cmd-line cmd-hdrs nil))]
-        (if job-uuid
-          ;; Just a sanity check.
-          (assert (= (norm-token gen-job-uuid)
-                     (norm-token job-uuid)))
-          ;; Remove the binding for a failed command.
-          (unbind-event conn
-                        :event-name "BACKGROUND_JOB"
-                        :job-uuid gen-job-uuid))
-        rslt))))
+      (try
+        (let [{:keys [job-uuid] :as rslt} (req-sync conn cmd-line cmd-hdrs nil :resp-timeout resp-timeout)]
+          (if job-uuid
+            ;; Just a sanity check.
+            (assert (= (norm-token gen-job-uuid)
+                       (norm-token job-uuid)))
+            ;; Remove the binding for a failed command.
+            (unbind-event conn
+                          :event-name "BACKGROUND_JOB"
+                          :job-uuid gen-job-uuid))
+          rslt)
+        (catch Throwable e
+            ;; Remove the binding if some exception occurs.
+            (unbind-event conn
+                          :event-name "BACKGROUND_JOB"
+                          :job-uuid gen-job-uuid)
+            (throw e))))))
+
 
 (defn req-event
   "Request to listen for an event and bind a handler for it.
@@ -810,6 +953,9 @@
   * `:event-name` - Name of the event. Special value `ALL` means
                     subscribe to all events and the handler matches
                     any value for `:event-name.`
+  * `resp-timeout` - (optional) Seconds to wait for server response, before throwing an exception.
+                     Defaults to `30` seconds.
+
   * All other keyword arguments are treated as event headers
     to match against. Like `:event-subclass` to match for custom
     events.
@@ -846,13 +992,15 @@
   "
   [conn
    handler
-   & {:keys [event-name]
-      :as event-headers}]
+   & {:keys [event-name
+             resp-timeout]
+      :or   {resp-timeout default-server-response-timeout}
+      :as   event-headers}]
   {:pre [(fn? handler)
          (not (nil? event-name))]}
   (let [cmd-line ["event" event-name]
         event-headers (if (= (str/lower-case (str/trim event-name)) "ALL")
-                        (dissoc event-headers :event-name)
+                        (dissoc event-headers :event-name :resp-timeout)
                         event-headers)]
     ;; Bind a handler.
     (apply bind-event
@@ -861,13 +1009,21 @@
            (flatten (seq event-headers)))
 
     ;; Request to listen for the event.
-    (let [{:keys [ok] :as rslt} (async/<!! (req conn cmd-line {} nil))]
-      ;; Unbind event handler if 'event' command failed.
-      (when-not ok
+    (try
+      (let [{:keys [ok] :as rslt} (req-sync conn cmd-line {} nil :resp-timeout resp-timeout)]
+        ;; Unbind event handler if 'event' command failed.
+        (when-not ok
+          (apply unbind-event
+                 conn
+                 (flatten (seq event-headers))))
+        rslt)
+      (catch Throwable e
+        ;; Unbind event handler if some exception happens.
         (apply unbind-event
                conn
-               (flatten (seq event-headers))))
-      rslt)))
+               (flatten (seq event-headers)))
+        (throw e)))))
+
 
 (defn req-sendevent
   "Send a generated event to freeswitch.
@@ -879,7 +1035,9 @@
 
   __Keyword args:__
 
-  * `:body` - (optional) The body of the event.
+  * `body` - (optional) The body of the event.
+  * `resp-timeout` - (optional) Seconds to wait for server response, before throwing an exception.
+                     Defaults to `30` seconds.
   * Any other keyword arguments are treated as headers for the event.
 
   __Returns:__
@@ -888,11 +1046,15 @@
   "
   [conn
    event-name
-   & {:keys [body] :as event-headers}]
+   & {:keys [body
+             resp-timeout]
+      :or   {resp-timeout default-server-response-timeout}
+      :as   event-headers}]
   (let [cmd-line ["sendevent" event-name]
-        cmd-hdrs (dissoc event-headers :body)
+        cmd-hdrs (dissoc event-headers :body :timeout-ms)
         cmd-body body]
-    (async/<!! (req cmd-line cmd-hdrs cmd-body))))
+    (req-sync conn cmd-line cmd-hdrs cmd-body :resp-timeout resp-timeout)))
+
 
 (defn req-sendmsg
   "Make a 'sendmsg' request to control a call.
@@ -905,6 +1067,8 @@
 
   * `:chan-uuid` - The UUID of target channel. Not required in outbound mode.
   * `:body` - (optional) Body of the message.
+  * `resp-timeout` - (optional) Seconds to wait for server response, before throwing an exception.
+                     Defaults to `30` seconds.
   * Any other keyword arguments are treated as headers for the message.
 
   __Returns:__
@@ -918,16 +1082,20 @@
   event listener setup.
   "
   [conn
-   & {:keys [chan-uuid body]
-      :as headers}]
+   & {:keys [chan-uuid
+             body
+             resp-timeout]
+      :or   {resp-timeout default-server-response-timeout}
+      :as   headers}]
   (let [cmd-line (if chan-uuid
                    ["sendmsg" chan-uuid]
                    ["sendmsg"])
         cmd-hdrs (as-> headers $
-                       (dissoc $ :body :chan-uuid)
+                       (dissoc $ :body :chan-uuid :resp-timeout)
                        (remove (fn [[k v]] (nil? v)) $))
         cmd-body body]
-    (async/<!! (req conn cmd-line cmd-hdrs cmd-body))))
+    (req-sync conn cmd-line cmd-hdrs cmd-body :resp-timeout resp-timeout)))
+
 
 (defn req-call-execute
   "Send a 'sendmsg' request to a channel (or current channel, in case
@@ -949,6 +1117,8 @@
   * `:end-handler` - (optional) Function to process the 'CHANNEL_EXECUTE_COMPLETE' event.
   * `:event-lock` - (optional) Whether to execute apps in sync. Defaults to false.
   * `:loops` - (optional) The number of times the app will be executed. Defaults to 1.
+  * `resp-timeout` - (optional) Seconds to wait for server response, before throwing an exception.
+                     Defaults to `30` seconds.
 
   __Returns:__
 
@@ -961,9 +1131,11 @@
              start-handler
              end-handler
              event-lock
-             loops]
-      :or {event-lock false
-           loops 1}
+             loops
+             resp-timeout]
+      :or {event-lock   false
+           loops        1
+           resp-timeout default-server-response-timeout}
       :as kwargs}]
 
   (let [event-uuid (or event-uuid (str (uuid/v1)))
@@ -972,7 +1144,7 @@
     ;; Setup :start-handler, if present.
     (when start-handler
       (when-not (@enabled-special-events "CHANNEL_EXECUTE")
-        (assert (:ok (req-cmd conn "event CHANNEL_EXECUTE"))))
+        (assert (:ok (req-cmd conn "event CHANNEL_EXECUTE" :resp-timeout resp-timeout))))
       (if chan-uuid
         (bind-event conn
                     (fn [conn event]
@@ -996,7 +1168,7 @@
     ;; Setup :end-handler, if present.
     (when end-handler
       (when-not (@enabled-special-events "CHANNEL_EXECUTE_COMPLETE")
-        (assert (:ok (req-cmd conn "event CHANNEL_EXECUTE_COMPLETE"))))
+        (assert (:ok (req-cmd conn "event CHANNEL_EXECUTE_COMPLETE" :resp-timeout resp-timeout))))
       (if chan-uuid
         (bind-event conn
                     (fn [conn event]
@@ -1017,16 +1189,40 @@
                     :event-name "CHANNEL_EXECUTE_COMPLETE"
                     :application-uuid event-uuid)))
 
-    ;; Make the 'sendmsg' request.
-    (req-sendmsg conn
-                 :chan-uuid chan-uuid
-                 :call-command "execute"
-                 :execute-app-name app-name
-                 :event-uuid event-uuid
-                 :loops loops
-                 :event-lock event-lock
-                 :content-type "text/plain"
-                 :body app-arg)))
+    (try
+      ;; Make the 'sendmsg' request.
+      (req-sendmsg conn
+                   :chan-uuid chan-uuid
+                   :call-command "execute"
+                   :execute-app-name app-name
+                   :event-uuid event-uuid
+                   :loops loops
+                   :event-lock event-lock
+                   :content-type "text/plain"
+                   :body app-arg
+                   :resp-timeout resp-timeout)
+      (catch Throwable e
+        ;; Unbind event handlers in case of exception.
+        (when start-handler
+          (if chan-uuid
+            (unbind-event conn
+                          :event-name "CHANNEL_EXECUTE"
+                          :unique-id chan-uuid
+                          :application-uuid event-uuid)
+            (unbind-event conn
+                          :event-name "CHANNEL_EXECUTE"
+                          :application-uuid event-uuid)))
+        (when end-handler
+          (if chan-uuid
+            (unbind-event conn
+                          :event-name "CHANNEL_EXECUTE_COMPLETE"
+                          :unique-id chan-uuid
+                          :application-uuid event-uuid)
+            (unbind-event conn
+                          :event-name "CHANNEL_EXECUTE_COMPLETE"
+                          :application-uuid event-uuid)))
+        ;; Rethrow exception.
+        (throw e)))))
 
 ;; TODO: req-call-hangup
 ;; TODO: req-call-nomedia
