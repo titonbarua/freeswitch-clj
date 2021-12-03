@@ -136,16 +136,27 @@
 
   Normally, you should use [[disconnect]] function to
   gracefully disconnect, which sends protocol epilogue."
-  [{:keys [aleph-stream event-chan closed? on-close-fn] :as conn}]
-  (try
-    (when event-chan
-      (async/close! event-chan))
-    (catch Throwable _ nil))
+  [{:keys [aleph-stream
+           event-chan
+           resp-chans-queue-atom
+           on-close-fn
+           closed?] :as conn}]
+  ;; Close event channel.
+  (async/close! event-chan)
 
-  (try
-    (when (and aleph-stream (not (realized? closed?)))
-      (stream/close! aleph-stream))
-    (catch Throwable _ nil)))
+  ;; Close all response channels.
+  (doseq [resp-chan @resp-chans-queue-atom]
+    (async/close! resp-chan))
+
+  ;; Close aleph stream, if not already closed.
+  (when-not (realized? closed?)
+    (deliver closed? true)
+    (stream/close! aleph-stream)
+    (when on-close-fn
+      (try
+        (on-close-fn conn)
+        (catch Exception e
+          (log/warn e "Ignored exception in on-close function."))))))
 
 
 (defmacro close-conn-on-error
@@ -249,13 +260,13 @@
 
 (defn- init-outbound
   "Do some initiation rites in outbound mode."
-  [conn chan-data]
+  [{:keys [resp-timeout] :as conn} chan-data]
   (log-wc-debug conn "Initiation rites starting ...")
   ;; NOTE: Without linger, hangup/error events are not sent and freeswitch
   ;; closes the connection prematurely.
-  (req conn ["linger"] {} nil)
+  (req-sync conn ["linger"] {} nil :resp-timeout resp-timeout)
   ;; NOTE: Without myevents, event processing won't work.
-  (req conn ["myevents"] {} nil)
+  (req-sync conn ["myevents"] {} nil :resp-timeout resp-timeout)
   (log-wc-debug conn "Initiation rites complete."))
 
 
@@ -434,31 +445,13 @@
 
 
 (defn ack-closure
-  [{:keys [on-close-fn event-chan closed?] :as conn}]
-  ;; As ack-drainage is not triggered upon connection closure from this side, We
-  ;; should close the event channel here. Without this, event-dispatcher-thread
-  ;; will sometime not properly exit and keep leaking memory.
-  (when event-chan
-    (async/close! event-chan))
-
-  (when-not (realized? closed?)
-    (when on-close-fn
-      (try
-        (on-close-fn conn)
-        (catch Exception e
-          (log/warn e "Ignored exception in on-close function."))))
-    (deliver closed? true)))
+  [conn]
+  (close conn))
 
 
 (defn ack-drainage
-  [{:keys [event-chan rx-buff resp-chans-queue-atom] :as conn}]
-  ;; As there is no more data to receive, we should close the event channel.
-  (when event-chan
-    (async/close! event-chan))
-
-  ;; Close all response channels.
-  (doseq [resp-chan @resp-chans-queue-atom]
-    (async/close! resp-chan)))
+  [conn]
+  (close conn))
 
 
 (defn- handle-disconnect-notice
@@ -504,20 +497,25 @@
 (defn- setup-and-handle-connection
   [conn chan-data pre-init-fn custom-init-fn async-thread-type handler]
   ;; Call pre-init-fn, if given.
-  (when pre-init-fn
-    (pre-init-fn conn chan-data))
+  (close-conn-on-error
+   conn
+   (when pre-init-fn
+     (pre-init-fn conn chan-data)))
 
   ;; Send initiation rites.
-  (if custom-init-fn
-    (custom-init-fn conn chan-data)
-    (init-outbound conn chan-data))
+  (close-conn-on-error
+   conn
+   (if custom-init-fn
+     (custom-init-fn conn chan-data)
+     (init-outbound conn chan-data)))
 
   ;; Spawn event dispatcher thread.
   (spawn-event-dispatcher async-thread-type conn)
 
   ;; Call connection handler.
-  (handler conn chan-data))
-
+  (close-conn-on-error
+   conn
+   (handler conn chan-data)))
 
 (defn- chan-data-from-connect-reply
   [connect-reply]
@@ -553,6 +551,7 @@
                                          :rx-buff               (atom "")
                                          :resp-chans-queue-atom resp-chans-queue-atom
                                          :outgoing-stream       (create-outgoing-stream resp-chans-queue-atom strm)
+                                         :resp-timeout          resp-timeout
 
                                          :event-handlers         (atom (sorted-map-by event-dispatcher-key-sort-comparator))
                                          :event-chan             (async/chan)
@@ -737,7 +736,8 @@
   * `:handler` - A function with signature: `(fn [conn chan-data])`.
                  `conn` is a connection map which can be used with any
                  requester function, like: [[req-cmd]], [[req-api]] etc.
-                 `chan-data` is information about current channel.
+                 `chan-data` is information about current channel. `conn`
+                 is automatically closed after handler exits.
   * `:custom-init-fn` - (optional) A function with signature: `(fn [conn chan-data])`.
                         If provided, it will replace the builtin function which sends
                         initiation rites, like `linger` and `myevents` upon connection

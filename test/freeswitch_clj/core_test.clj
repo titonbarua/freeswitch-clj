@@ -729,3 +729,51 @@
 
             ;; The connection should be automatically closed due to the thrown exception.
             (is (realized? (:closed? conn)))))))))
+
+
+(deftest test-exception-related-connection-closure-in-fs-outbound-handling
+  (testing "Testing exception related connection closure in fs outbound handling ..."
+    (let [{:keys [fsa
+                  fsb
+                  esl-outbound-host
+                  esl-outbound-port]} (get-freeswitch-connection-configs)]
+      (let [outbound-server (promise)
+            client-conn     (promise)
+            server-conn     (fc/connect :host (:host fsa)
+                                        :port (:esl-port fsa)
+                                        :password (:esl-pass fsa)
+                                        :async-thread-type :thread)]
+        (try
+          (deliver outbound-server
+                   (fc/listen :host esl-outbound-host
+                              :port esl-outbound-port
+                              :handler (fn [conn chan-info]
+                                         (deliver client-conn conn)
+                                         (throw (ex-info "Just a random exception." {})))))
+
+          (let [originate-cmd (format "originate {ignore_early_media=false}sofia/external/%s@%s:%s &socket('%s:%s') async full"
+                                      (:sip-user fsb)
+                                      (:host fsb)
+                                      (:sip-port fsb)
+                                      esl-outbound-host
+                                      esl-outbound-port)]
+            (is (= (select-keys (fc/req-api server-conn originate-cmd) [:ok])
+                   {:ok true})))
+
+          ;; Wait for some time.
+          (async/<!! (async/timeout 1000))
+
+          ;; The client connection should be closed despite exception.
+          (is (and (realized? client-conn)
+                   (realized? (:closed? @client-conn))
+                   (let [ec       (:event-chan @client-conn)
+                         tc       (async/timeout 1000)
+                         [val ch] (async/alts!! [ec tc])]
+                     (and (= val nil) (= ch ec)))))
+
+          (finally
+            ;; Closing outbound server.
+            (.close @outbound-server)
+
+            ;; Close client connection.
+            (fc/close @client-conn)))))))
