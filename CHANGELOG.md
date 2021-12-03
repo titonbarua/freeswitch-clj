@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [1.3.0-SNAPSHOT-2] - 2021-12-02
+## [1.3.0-SNAPSHOT-3] - 2021-12-03
 - **Breaking** Most blocking api functions now take an optional keyword argument
   named `resp-timeout`. Previously, they waited forever for server response, causing
   an occasional thread leak in busy situations. The default value is 30 seconds.
@@ -10,6 +10,8 @@
   of exception and re-throws the exception.
 - Exceptions inside event handlers are now ignored and does not break the event dispatcher
   loop.
+- Exceptions inside connection handler in freeswitch outbound server mode now closes
+  the connection.
 
 ## [1.2.2] - 2021-11-20
 - Fixed potential memory/thread leak issue.
