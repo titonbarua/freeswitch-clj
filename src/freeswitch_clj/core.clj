@@ -125,7 +125,8 @@
                                   (map (fn [[data resp-chan]]
                                          (swap! resp-chans-queue-atom conj resp-chan)
                                          data)))]
-    (stream/connect new-stream aleph-stream)
+    (stream/connect new-stream aleph-stream {:downstream? true
+                                             :upstream?   true})
     new-stream))
 
 
@@ -137,6 +138,7 @@
   Normally, you should use [[disconnect]] function to
   gracefully disconnect, which sends protocol epilogue."
   [{:keys [aleph-stream
+           outgoing-stream
            event-chan
            resp-chans-queue-atom
            on-close-fn
@@ -152,6 +154,7 @@
   (when-not (realized? closed?)
     (deliver closed? true)
     (stream/close! aleph-stream)
+    (stream/close! outgoing-stream)
     (when on-close-fn
       (try
         (on-close-fn conn)
