@@ -29,7 +29,7 @@ Full API documentation is available at [cljdoc.org](https://cljdoc.org/d/freeswi
 ### Inbound example
 
 ```clojure
-(require '[freeswitch-clj :as f])
+(require '[freeswitch-clj.core :as f])
 
 ;; Connect to a local freeswitch server.
 (def conn (f/connect :host "localhost"
@@ -57,7 +57,7 @@ Full API documentation is available at [cljdoc.org](https://cljdoc.org/d/freeswi
 ### Outbound example
 
 ```clojure
-(require '[freeswitch-clj :as f])
+(require '[freeswitch-clj.core :as f])
 
 ;; Define an incoming connection handler.
 (defn conn-handler
