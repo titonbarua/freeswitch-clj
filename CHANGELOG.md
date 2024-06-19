@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2023-18-06
+- Upgraded most dependencies. Minimum required clojure version is now 1.10.x
+  due to requirement of aleph 0.8.0.
+
+
 ## [1.3.0-SNAPSHOT-4] - 2021-12-29
 - **Breaking** Most blocking api functions now take an optional keyword argument
   named `resp-timeout`. Previously, they waited forever for server response, causing
