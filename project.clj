@@ -3,6 +3,7 @@
   :url "https://github.com/titonbarua/freeswitch-clj"
   :license {:name "MIT Public License"
             :url "https://opensource.org/licenses/MIT"}
+  :signing {:gpg-key "titon@vimmaniac.com"}
   :dependencies [[org.clojure/clojure "1.11.3" :scope "provided"]
                  [org.clojure/core.async "1.6.681"]
                  [org.clojure/tools.logging "1.3.0"]
