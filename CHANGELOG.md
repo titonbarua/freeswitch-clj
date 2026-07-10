@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-06-10
+
+- Dependency updates:
+```
+[org.clojure/clojure "1.12.5"] is available but we use "1.11.3" (use :check-clojure to upgrade)
+[org.clojure/core.async "1.9.865"] is available but we use "1.6.681"
+[org.clojure/tools.logging "1.3.1"] is available but we use "1.3.0"
+[org.slf4j/slf4j-simple "2.0.18"] is available but we use "2.0.13"
+[danlentz/clj-uuid "0.2.5"] is available but we use "0.1.9"
+[metosin/jsonista "1.0.0"] is available but we use "0.3.8"
+[aleph "0.9.9"] is available but we use "0.8.0"
+```
+- Updated test freeswitch image to version 1.10.12.
+- Updated docker compose command.
+
 ## [1.4.0] - 2023-18-06
 - Upgraded most dependencies. Minimum required clojure version is now 1.10.x
   due to requirement of aleph 0.8.0.
