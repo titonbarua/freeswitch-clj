@@ -13,7 +13,7 @@
                  [aleph "0.9.9"]]
   :plugins [[lein-ancient "1.0.0-RC3"]]
   :profiles {:test {:dependencies [[digest "1.4.10"]]}
-             :doc-gen {:plugins [[lein-codox "0.10.3"]]
+             :doc-gen {:plugins [[lein-codox "0.10.8"]]
                        :codox {:metadata {:doc/format :markdown}
                                :namespaces [freeswitch-clj.core]
                                :source-uri "https://github.com/titonbarua/freeswitch-clj/blob/v{version}/{filepath}#L{line}"
