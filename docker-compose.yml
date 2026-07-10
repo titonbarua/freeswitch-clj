@@ -1,7 +1,8 @@
 services:
   fsa:
     # image: titon/freeswitch-1.10.5:latest
-    image: safarov/freeswitch@sha256:a07034201875731ed65670acfe97f2d5c83411a889931cb49c2d788643073010
+    # image: safarov/freeswitch@sha256:a07034201875731ed65670acfe97f2d5c83411a889931cb49c2d788643073010
+    image: safarov/freeswitch:1.10.12
     volumes:
       - type: bind
         source: ./testenv/fsa_configs/etc_freeswitch
@@ -18,7 +19,8 @@ services:
 
   fsb:
     # image: titon/freeswitch-1.10.5:latest
-    image: safarov/freeswitch@sha256:a07034201875731ed65670acfe97f2d5c83411a889931cb49c2d788643073010
+    # image: safarov/freeswitch@sha256:a07034201875731ed65670acfe97f2d5c83411a889931cb49c2d788643073010
+    image: safarov/freeswitch:1.10.12
     ports:
       - 5080
     volumes:

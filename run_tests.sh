@@ -1,3 +1,3 @@
 #!/bin/sh
 set -x
-docker-compose up fsclj
+docker compose up fsclj
